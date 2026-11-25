@@ -516,7 +516,23 @@ export class PackManager {
     if (!this.gl || !this.customManifest) return;
     const m = this.customManifest;
     const priorityPages = new Set<number>();
-    for (const targetName of Object.values(m.logicalAliases ?? {})) {
+    const aliases = Object.entries(m.logicalAliases ?? {});
+    // Warm core world tilesets, outcasts, bosses, hub stations, and FX first
+    for (const [aliasKey, targetName] of aliases) {
+      if (
+        aliasKey.startsWith('tile_') ||
+        aliasKey.startsWith('outcast_') ||
+        aliasKey.startsWith('boss_') ||
+        aliasKey.startsWith('hub_') ||
+        aliasKey.startsWith('fx_')
+      ) {
+        const sp = m.sprites[targetName];
+        if (sp && sp.frames.length > 0) {
+          priorityPages.add(sp.frames[0].page);
+        }
+      }
+    }
+    for (const [, targetName] of aliases) {
       const sp = m.sprites[targetName];
       if (sp && sp.frames.length > 0) {
         priorityPages.add(sp.frames[0].page);
@@ -526,7 +542,7 @@ export class PackManager {
     for (const pageIdx of priorityPages) {
       this.ensureCustomPageLoaded(pageIdx);
       count++;
-      if (count >= 48) break;
+      if (count >= 128) break;
     }
   }
 
@@ -597,6 +613,26 @@ export class PackManager {
 
     // 2. Built-In Original Krunked Pack (guaranteed non-null fallback)
     return this.resolveFromBuiltin(logicalKey, frameIndex);
+  }
+
+  /**
+   * Resolves a specialized key (e.g. `tile_floor_darkcity`) first, falling back
+   * cleanly to a generic key (e.g. `tile_floor`) in both Custom and Built-In modes.
+   */
+  resolveSpriteWithFallback(primaryKey: string, fallbackKey: string, frameIndex = 0): ResolvedSprite {
+    if (this.mode === 'custom' && this.customManifest && this.gl) {
+      const primary = this.tryResolveFromCustom(primaryKey, frameIndex);
+      if (primary) return primary;
+      const fallback = this.tryResolveFromCustom(fallbackKey, frameIndex);
+      if (fallback) return fallback;
+    }
+
+    const m = this.builtinData.manifest;
+    const primaryAlias = m.logicalAliases[primaryKey];
+    if ((primaryAlias && m.sprites[primaryAlias]) || m.sprites[primaryKey]) {
+      return this.resolveFromBuiltin(primaryKey, frameIndex);
+    }
+    return this.resolveFromBuiltin(fallbackKey, frameIndex);
   }
 
   getWhitePixel(): ResolvedSprite {
@@ -672,6 +708,11 @@ export class PackManager {
       else if (logicalKey.startsWith('outcast_')) meta = m.sprites.outcast_britta;
       else if (logicalKey.startsWith('pickup_')) meta = m.sprites.pickup_gold;
       else if (logicalKey.startsWith('proj_')) meta = m.sprites.proj_bullet;
+      else if (logicalKey.startsWith('hub_')) meta = m.sprites.hub_jotunn;
+      else if (logicalKey.startsWith('tile_wall_face')) meta = m.sprites.tile_wall_face;
+      else if (logicalKey.startsWith('tile_wall_broken')) meta = m.sprites.tile_wall_broken;
+      else if (logicalKey.startsWith('tile_wall')) meta = m.sprites.tile_wall;
+      else if (logicalKey.startsWith('tile_rubble')) meta = m.sprites.tile_rubble;
       else if (logicalKey.startsWith('tile_')) meta = m.sprites.tile_floor;
       else meta = m.sprites.fx_white_1x1;
     }

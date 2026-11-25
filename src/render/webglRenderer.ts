@@ -691,7 +691,7 @@ export class WebGL2Renderer {
               : ev.ammoType === 5
                 ? ([1.0, 0.52, 0.18] as const)
                 : ([1.0, 0.82, 0.45] as const);
-          this.spawnFlashLight(muzzleX, muzzleY, 54, col[0], col[1], col[2], 1.15, 0.08);
+          this.spawnFlashLight(muzzleX, muzzleY, 64, col[0], col[1], col[2], 1.38, 0.09);
           for (let s = 0; s < 3; s++) {
             const spread = ev.angle + (this.nextRand() - 0.5) * 0.7;
             const spd = 25 + this.nextRand() * 45;
@@ -821,7 +821,7 @@ export class WebGL2Renderer {
             Math.min(1.3, 0.65 + ev.intensity * 0.5),
             0.42
           );
-          this.spawnFlashLight(ev.x, ev.y, Math.max(95, ev.radius * 2.8), elem[0], elem[1], elem[2], 1.75, 0.28);
+          this.spawnFlashLight(ev.x, ev.y, Math.max(108, ev.radius * 3.0), elem[0], elem[1], elem[2], 1.95, 0.30);
           this.queueDecal(ev.x, ev.y, Math.max(0.9, ev.radius / 18), this.nextRand() * 6.28, 1, 1, 1, 0.85, 'scorch', 0);
           if (ev.element === 'acid' || ev.element === 'radioactive') {
             this.queueDecal(ev.x, ev.y, Math.max(1.1, ev.radius / 16), this.nextRand() * 6.28, elem[0], elem[1], elem[2], 0.72, 'splat', 2);
@@ -1409,6 +1409,12 @@ export class WebGL2Renderer {
       const d = this.pendingDecals[i];
       if (!settings.bloodEnabled && d.kind === 'splat') continue;
       let sp: ResolvedSprite;
+      let u0: number;
+      let u1: number;
+      let drawW: number;
+      let drawH: number;
+      let originX: number;
+      let originY: number;
       if (d.kind === 'scorch') {
         sp = this.packManager.resolveSprite('fx_decal_scorch', 0);
       } else if (d.kind === 'rubble') {
@@ -1418,24 +1424,43 @@ export class WebGL2Renderer {
       } else {
         sp = this.packManager.resolveSprite('fx_decal_splat', d.variant);
       }
+      u0 = sp.u0;
+      u1 = sp.u1;
+      drawW = sp.width;
+      drawH = sp.height;
+      originX = sp.originX;
+      originY = sp.originY;
+      // Slice horizontal multi-tile strip cleanly if rubble resolves to a custom FloorBroken strip
+      if (d.kind === 'rubble' && sp.width >= 32 && sp.height <= 24) {
+        const sliceW = sp.height >= 16 && sp.width % sp.height === 0 ? sp.height : 16;
+        const count = Math.max(1, Math.floor(sp.width / sliceW));
+        const idx = (((Math.floor(d.x) * 73856093) ^ (Math.floor(d.y) * 19349663)) >>> 0) % count;
+        const du = sp.u1 - sp.u0;
+        u0 = sp.u0 + du * (idx / count);
+        u1 = sp.u0 + du * ((idx + 1) / count);
+        drawW = sliceW;
+        originX = sliceW * 0.5;
+        originY = sp.height * 0.5;
+      }
+      const isCustomRubble = d.kind === 'rubble' && sp.sourcePack === 'custom';
       batch.drawSprite(
         sp.pageTexture,
         d.x,
         d.y,
-        sp.width,
-        sp.height,
-        sp.originX,
-        sp.originY,
+        drawW,
+        drawH,
+        originX,
+        originY,
         d.scale,
         d.scale,
         d.rotation,
-        sp.u0,
+        u0,
         sp.v0,
-        sp.u1,
+        u1,
         sp.v1,
-        d.r,
-        d.g,
-        d.b,
+        isCustomRubble ? 1 : d.r,
+        isCustomRubble ? 1 : d.g,
+        isCustomRubble ? 1 : d.b,
         d.a
       );
     }
@@ -1478,7 +1503,14 @@ export class WebGL2Renderer {
     const minTy = Math.max(0, Math.floor(viewTop / ts) - 2);
     const maxTy = Math.min(map.height - 1, Math.ceil((viewTop + viewH) / ts) + 2);
 
+    const biomeId = (map.biomeId || 'canyon').toLowerCase();
+    const floorBiomeKey = `tile_floor_${biomeId}`;
+    const wallBiomeKey = `tile_wall_${biomeId}`;
+    const wallFaceBiomeKey = `tile_wall_face_${biomeId}`;
+    const wallBrokenBiomeKey = `tile_wall_broken_${biomeId}`;
+    const rubbleBiomeKey = `tile_rubble_${biomeId}`;
     const animFrame4 = Math.floor(timeSec * 5) % 4;
+    const white = this.packManager.getWhitePixel();
 
     batch.begin(shaders.sprite, this.worldProj, timeSec, 'normal');
 
@@ -1489,22 +1521,41 @@ export class WebGL2Renderer {
       for (let tx = minTx; tx <= maxTx; tx++) {
         const kind = map.tiles[rowOffset + tx] as TileKind;
         const wx = tx * ts;
-        const hash = ((tx * 73856093) ^ (ty * 19349663)) & 3;
+        const tileHash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
+        const hash4 = tileHash & 3;
 
         if (kind === TileKind.Lava) {
-          const sp = this.packManager.resolveSprite('tile_lava', (animFrame4 + hash) % 4);
+          const sp = this.packManager.resolveSprite('tile_lava', (animFrame4 + hash4) % 4);
+          let u0 = sp.u0;
+          let u1 = sp.u1;
+          if (sp.width >= 32 && sp.height <= 24) {
+            const count = Math.max(1, Math.floor(sp.width / 16));
+            const idx = tileHash % count;
+            const du = sp.u1 - sp.u0;
+            u0 = sp.u0 + du * (idx / count);
+            u1 = sp.u0 + du * ((idx + 1) / count);
+          }
           batch.drawQuad(
             sp.pageTexture, wx, wy, ts, ts,
-            sp.u0, sp.v0, sp.u1, sp.v1,
+            u0, sp.v0, u1, sp.v1,
             1, 1, 1, 1, 0, FX_MODE_LAVA
           );
           continue;
         }
         if (kind === TileKind.PitOrWater) {
-          const sp = this.packManager.resolveSprite('tile_water', (animFrame4 + hash) % 4);
+          const sp = this.packManager.resolveSprite('tile_water', (animFrame4 + hash4) % 4);
+          let u0 = sp.u0;
+          let u1 = sp.u1;
+          if (sp.width >= 32 && sp.height <= 24) {
+            const count = Math.max(1, Math.floor(sp.width / 16));
+            const idx = tileHash % count;
+            const du = sp.u1 - sp.u0;
+            u0 = sp.u0 + du * (idx / count);
+            u1 = sp.u0 + du * ((idx + 1) / count);
+          }
           batch.drawQuad(
             sp.pageTexture, wx, wy, ts, ts,
-            sp.u0, sp.v0, sp.u1, sp.v1,
+            u0, sp.v0, u1, sp.v1,
             1, 1, 1, 1, 0, FX_MODE_WATER
           );
           continue;
@@ -1512,20 +1563,63 @@ export class WebGL2Renderer {
 
         // Draw floor underneath walkable / rubble / crate tiles
         if (kind !== TileKind.WallDestructible && kind !== TileKind.WallBedrock) {
-          const sp = this.packManager.resolveSprite('tile_floor', hash);
-          const col = (tx + ty) % 2 === 0 ? floorA : floorB;
-          batch.drawQuad(
-            sp.pageTexture, wx, wy, ts, ts,
-            sp.u0, sp.v0, sp.u1, sp.v1,
-            col[0] * 1.18, col[1] * 1.18, col[2] * 1.18, 1
-          );
-          if (kind === TileKind.Rubble) {
-            const rub = this.packManager.resolveSprite('tile_rubble', 0);
+          const sp = this.packManager.resolveSpriteWithFallback(floorBiomeKey, 'tile_floor', hash4);
+          let u0 = sp.u0;
+          let u1 = sp.u1;
+          // Retail multi-tile horizontal strips (e.g. 128x16..464x16): slice ONE 16x16 sub-tile!
+          if (sp.width >= 32 && sp.height <= 24) {
+            const count = Math.max(1, Math.floor(sp.width / 16));
+            const idx = tileHash % count;
+            const du = sp.u1 - sp.u0;
+            u0 = sp.u0 + du * (idx / count);
+            u1 = sp.u0 + du * ((idx + 1) / count);
+          }
+          if (sp.sourcePack === 'custom') {
+            // Pure bright (1,1,1,1) for Custom Pack retail floor tiles (never crush dark biomes!)
             batch.drawQuad(
-              rub.pageTexture, wx, wy, ts, ts,
-              rub.u0, rub.v0, rub.u1, rub.v1,
-              wallTopCol[0] * 1.1, wallTopCol[1] * 1.1, wallTopCol[2] * 1.1, 1
+              sp.pageTexture, wx, wy, ts, ts,
+              u0, sp.v0, u1, sp.v1,
+              1, 1, 1, 1
             );
+          } else {
+            const col = (tx + ty) % 2 === 0 ? floorA : floorB;
+            batch.drawQuad(
+              sp.pageTexture, wx, wy, ts, ts,
+              u0, sp.v0, u1, sp.v1,
+              Math.min(1, col[0] * 1.24),
+              Math.min(1, col[1] * 1.24),
+              Math.min(1, col[2] * 1.24),
+              1
+            );
+          }
+          if (kind === TileKind.Rubble) {
+            const rub = this.packManager.resolveSpriteWithFallback(rubbleBiomeKey, 'tile_rubble', 0);
+            let ru0 = rub.u0;
+            let ru1 = rub.u1;
+            if (rub.width >= 32 && rub.height <= 24) {
+              const sliceW = rub.height >= 16 && rub.width % rub.height === 0 ? rub.height : 16;
+              const count = Math.max(1, Math.floor(rub.width / sliceW));
+              const idx = tileHash % count;
+              const du = rub.u1 - rub.u0;
+              ru0 = rub.u0 + du * (idx / count);
+              ru1 = rub.u0 + du * ((idx + 1) / count);
+            }
+            if (rub.sourcePack === 'custom') {
+              batch.drawQuad(
+                rub.pageTexture, wx, wy, ts, ts,
+                ru0, rub.v0, ru1, rub.v1,
+                1, 1, 1, 1
+              );
+            } else {
+              batch.drawQuad(
+                rub.pageTexture, wx, wy, ts, ts,
+                ru0, rub.v0, ru1, rub.v1,
+                Math.min(1, wallTopCol[0] * 1.15),
+                Math.min(1, wallTopCol[1] * 1.15),
+                Math.min(1, wallTopCol[2] * 1.15),
+                1
+              );
+            }
           }
         }
       }
@@ -1550,7 +1644,7 @@ export class WebGL2Renderer {
     );
 
     // 1C. 3D-Extruded Walls (Top Cap + South Front Face + Progressive Crack Overlays) & Crates
-    const wallDepth = 6;
+    const wallDepth = 8;
     for (let ty = minTy; ty <= maxTy; ty++) {
       const rowOffset = ty * map.width;
       const wy = ty * ts;
@@ -1558,6 +1652,7 @@ export class WebGL2Renderer {
         const idx = rowOffset + tx;
         const kind = map.tiles[idx] as TileKind;
         const wx = tx * ts;
+        const tileHash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
 
         if (kind === TileKind.CoverCrate) {
           const crate = this.packManager.resolveSprite('tile_crate', 0);
@@ -1577,46 +1672,120 @@ export class WebGL2Renderer {
 
           // South 3D front face when exposed above walkable ground
           if (!belowWall) {
-            const face = this.packManager.resolveSprite('tile_wall_face', 0);
-            const fCol = kind === TileKind.WallBedrock ? ([0.45, 0.45, 0.56] as const) : wallFaceCol;
+            const faceProbe = this.packManager.resolveSpriteWithFallback(wallFaceBiomeKey, 'tile_wall_face', 0);
+            const face =
+              faceProbe.sourcePack === 'custom' && faceProbe.frameCount > 1
+                ? this.packManager.resolveSpriteWithFallback(
+                    wallFaceBiomeKey,
+                    'tile_wall_face',
+                    tileHash % faceProbe.frameCount
+                  )
+                : faceProbe;
+            if (face.sourcePack === 'custom') {
+              const fScale = kind === TileKind.WallBedrock ? 0.86 : 1.0;
+              batch.drawQuad(
+                face.pageTexture,
+                wx,
+                wy + ts - wallDepth,
+                ts,
+                wallDepth,
+                face.u0,
+                face.v0,
+                face.u1,
+                face.v1,
+                0.92 * fScale,
+                0.92 * fScale,
+                0.96 * fScale,
+                1
+              );
+            } else {
+              const fCol = kind === TileKind.WallBedrock ? ([0.48, 0.50, 0.62] as const) : wallFaceCol;
+              batch.drawQuad(
+                face.pageTexture,
+                wx,
+                wy + ts - wallDepth,
+                ts,
+                wallDepth,
+                face.u0,
+                face.v0,
+                face.u1,
+                face.v1,
+                Math.min(1, fCol[0] * 1.18),
+                Math.min(1, fCol[1] * 1.18),
+                Math.min(1, fCol[2] * 1.18),
+                1
+              );
+            }
+            // Crisp dark base contact lip along bottom edge of wall front face
             batch.drawQuad(
-              face.pageTexture,
+              white.pageTexture,
               wx,
-              wy + ts - wallDepth,
+              wy + ts - 1,
               ts,
-              wallDepth,
-              face.u0,
-              face.v0,
-              face.u1,
-              face.v1,
-              fCol[0] * 1.15,
-              fCol[1] * 1.15,
-              fCol[2] * 1.15,
-              1
+              1,
+              white.u0,
+              white.v0,
+              white.u1,
+              white.v1,
+              0.03,
+              0.03,
+              0.06,
+              0.78
             );
           }
 
-          // Top cap raised slightly for crisp 2.5D top-down depth
-          const topSp = this.packManager.resolveSprite(
-            kind === TileKind.WallBedrock ? 'tile_bedrock' : 'tile_wall',
-            0
-          );
-          const tCol = kind === TileKind.WallBedrock ? ([0.95, 0.95, 1.05] as const) : wallTopCol;
-          batch.drawQuad(
-            topSp.pageTexture,
-            wx,
-            wy - wallDepth,
-            ts,
-            ts,
-            topSp.u0,
-            topSp.v0,
-            topSp.u1,
-            topSp.v1,
-            tCol[0] * 1.25,
-            tCol[1] * 1.25,
-            tCol[2] * 1.25,
-            1
-          );
+          // Top cap raised for crisp 2.5D top-down depth
+          const topProbe =
+            kind === TileKind.WallBedrock && this.packManager.getMode() !== 'custom'
+              ? this.packManager.resolveSprite('tile_bedrock', 0)
+              : this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', 0);
+          // For Custom Pack multi-frame retail walls, skip partial f0 border sprite when >1 frame
+          const topSp =
+            topProbe.sourcePack === 'custom' && topProbe.frameCount > 1
+              ? this.packManager.resolveSpriteWithFallback(
+                  wallBiomeKey,
+                  'tile_wall',
+                  1 + (tileHash % Math.min(6, topProbe.frameCount - 1))
+                )
+              : topProbe;
+
+          if (topSp.sourcePack === 'custom') {
+            const topR = kind === TileKind.WallBedrock ? 0.90 : 1.05;
+            const topG = kind === TileKind.WallBedrock ? 0.92 : 1.05;
+            const topB = kind === TileKind.WallBedrock ? 0.98 : 1.05;
+            batch.drawQuad(
+              topSp.pageTexture,
+              wx,
+              wy - wallDepth,
+              ts,
+              ts,
+              topSp.u0,
+              topSp.v0,
+              topSp.u1,
+              topSp.v1,
+              topR,
+              topG,
+              topB,
+              1
+            );
+          } else {
+            const tCol = kind === TileKind.WallBedrock ? ([0.95, 0.95, 1.05] as const) : wallTopCol;
+            batch.drawQuad(
+              topSp.pageTexture,
+              wx,
+              wy - wallDepth,
+              ts,
+              ts,
+              topSp.u0,
+              topSp.v0,
+              topSp.u1,
+              topSp.v1,
+              Math.min(1.1, tCol[0] * 1.32),
+              Math.min(1.1, tCol[1] * 1.32),
+              Math.min(1.1, tCol[2] * 1.32),
+              1
+            );
+          }
 
           // Progressive crack overlays at <66% and <33% HP
           if (kind === TileKind.WallDestructible) {
@@ -1625,7 +1794,24 @@ export class WebGL2Renderer {
             if (maxHp > 0 && hp < maxHp) {
               const ratio = hp / maxHp;
               if (ratio < 0.66) {
-                const crackSp = this.packManager.resolveSprite('tile_wall_broken', ratio < 0.33 ? 1 : 0);
+                const crackProbe = this.packManager.resolveSpriteWithFallback(
+                  wallBrokenBiomeKey,
+                  'tile_wall_broken',
+                  0
+                );
+                const crackFrame =
+                  crackProbe.sourcePack === 'custom'
+                    ? ratio < 0.33
+                      ? Math.min(3, Math.max(0, crackProbe.frameCount - 1))
+                      : Math.min(1, Math.max(0, crackProbe.frameCount - 1))
+                    : ratio < 0.33
+                      ? 1
+                      : 0;
+                const crackSp = this.packManager.resolveSpriteWithFallback(
+                  wallBrokenBiomeKey,
+                  'tile_wall_broken',
+                  crackFrame
+                );
                 batch.drawQuad(
                   crackSp.pageTexture,
                   wx,
@@ -1636,9 +1822,9 @@ export class WebGL2Renderer {
                   crackSp.v0,
                   crackSp.u1,
                   crackSp.v1,
-                  1,
-                  1,
-                  1,
+                  1.02,
+                  1.02,
+                  1.02,
                   1
                 );
               }
@@ -1651,7 +1837,9 @@ export class WebGL2Renderer {
     // 1D. Bifrost Exit Portal (sh_bifrost rainbow vortex)
     if (map.exitUnlocked && state.screenMode === 'combat') {
       const bifrost = this.packManager.resolveSprite('fx_bifrost', animFrame4);
-      const pulse = 1.0 + Math.sin(timeSec * 5) * 0.08;
+      const maxDim = Math.max(bifrost.width, bifrost.height);
+      const baseScale = bifrost.sourcePack === 'custom' && maxDim > 48 ? 42 / maxDim : 1.0;
+      const pulse = baseScale * (1.0 + Math.sin(timeSec * 5) * 0.08);
       batch.drawSprite(
         bifrost.pageTexture,
         map.exitX,
@@ -1671,15 +1859,31 @@ export class WebGL2Renderer {
       );
     }
 
-    // 1E. Hub Outpost Landmarks
+    // 1E. Hub Outpost Landmarks (Every station has its own distinct sprite & rune pad!)
     if (state.screenMode === 'hub' && state.hubInteractables.length > 0) {
-      const white = this.packManager.getWhitePixel();
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const item = state.hubInteractables[i];
         const dist = Math.hypot(state.player.x - item.x, state.player.y - item.y);
         const near = dist <= item.radius + 18;
 
-        // Subtle Norse ground rune ring under each station
+        // Distinct color-coded Norse ground rune ring under each station
+        const ringCol =
+          item.id === 'loki'
+            ? ([0.22, 0.98, 0.62] as const)
+            : item.id === 'jotunn_matic'
+              ? ([0.22, 0.90, 1.0] as const)
+              : item.id === 'skill_tree'
+                ? ([0.52, 1.0, 0.38] as const)
+                : item.id === 'modifiers'
+                  ? ([0.82, 0.36, 1.0] as const)
+                  : item.id === 'weapondex'
+                    ? ([1.0, 0.72, 0.24] as const)
+                    : item.id === 'enemydex'
+                      ? ([1.0, 0.32, 0.42] as const)
+                      : item.id === 'bifrost'
+                        ? ([0.38, 0.96, 1.0] as const)
+                        : ([1.0, 0.86, 0.36] as const);
+
         batch.drawArcRibbon(
           white.pageTexture,
           (white.u0 + white.u1) * 0.5,
@@ -1691,10 +1895,10 @@ export class WebGL2Renderer {
           0,
           Math.PI * 2,
           20,
-          near ? 0.35 : 0.22,
-          near ? 0.98 : 0.68,
-          near ? 1.0 : 0.78,
-          near ? 0.8 : 0.35
+          ringCol[0],
+          ringCol[1],
+          ringCol[2],
+          near ? 0.90 : 0.45
         );
 
         let key = 'hub_jotunn';
@@ -1702,12 +1906,22 @@ export class WebGL2Renderer {
         if (item.id === 'loki') key = 'hub_loki';
         else if (item.id === 'jotunn_matic') key = 'hub_jotunn';
         else if (item.id === 'skill_tree') key = 'hub_yggdrasil';
+        else if (item.id === 'modifiers') key = 'hub_modifiers';
+        else if (item.id === 'weapondex') key = 'hub_weapondex';
+        else if (item.id === 'enemydex') key = 'hub_enemydex';
         else if (item.id === 'training_dummy') key = 'hub_dummy';
         else if (item.id === 'bifrost') {
           key = 'fx_bifrost';
           fxMode = FX_MODE_BIFROST;
         }
-        const sp = this.packManager.resolveSprite(key, Math.floor(timeSec * 3) % 4);
+
+        // Custom Pack hub computers use f0 as the solid full machine (f1-2 are glow masks only!)
+        const frameIdx = this.packManager.getMode() === 'custom' && item.id !== 'bifrost'
+          ? 0
+          : Math.floor(timeSec * 3) % 4;
+        const sp = this.packManager.resolveSprite(key, frameIdx);
+        const maxDim = Math.max(sp.width, sp.height);
+        const fitScale = sp.sourcePack === 'custom' && maxDim > 48 ? 46 / maxDim : 1.0;
         batch.drawSprite(
           sp.pageTexture,
           item.x,
@@ -1716,14 +1930,14 @@ export class WebGL2Renderer {
           sp.height,
           sp.originX,
           sp.originY,
-          1,
-          1,
+          fitScale,
+          fitScale,
           item.id === 'bifrost' ? timeSec * 0.9 : 0,
           sp.u0,
           sp.v0,
           sp.u1,
           sp.v1,
-          1, 1, 1, 1, near ? 0.12 : 0, fxMode
+          1, 1, 1, 1, near ? 0.14 : 0, fxMode
         );
       }
     }
@@ -1775,15 +1989,15 @@ export class WebGL2Renderer {
             if (below !== TileKind.WallDestructible && below !== TileKind.WallBedrock) {
               batch.drawQuad(
                 white.pageTexture,
-                tx * ts + 2,
+                tx * ts + 1,
                 (ty + 1) * ts,
                 ts,
-                5,
+                6,
                 white.u0,
                 white.v0,
                 white.u1,
                 white.v1,
-                0.04, 0.03, 0.08, 1.0, 0, FX_MODE_SHADOW
+                0.02, 0.02, 0.05, 1.0, 0, FX_MODE_SHADOW
               );
             }
           }
@@ -2117,14 +2331,39 @@ export class WebGL2Renderer {
       }
     }
 
-    // 4H. Hub Proximity Interaction Labels + Crisp World Floating Damage Numbers
+    // 4H. Always-Visible Crisp Pixel-Font Hub Station Labels + Proximity Prompts + Floating Damage
     if (state.screenMode === 'hub') {
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const item = state.hubInteractables[i];
         const dist = Math.hypot(state.player.x - item.x, state.player.y - item.y);
-        if (dist <= item.radius + 32) {
-          const prompt = `[E] ${item.label}`;
-          this.drawPixelText(batch, prompt, item.x, item.y - 36, 0.9, 0.45, 0.98, 1.0, 1.0, true);
+        const near = dist <= item.radius + 32;
+        const text = near ? `[E] ${item.label}` : item.label;
+        const scale = near ? 0.92 : 0.78;
+        const labelY = Math.round(item.y - (item.id === 'skill_tree' ? 48 : 42));
+        const measured = measurePixelText(text, scale);
+        const pillW = Math.round(measured.width + 6);
+        const pillH = Math.round(measured.height + 3);
+        const pillX = Math.round(item.x - pillW * 0.5);
+        const pillY = labelY - 2;
+        batch.drawQuad(
+          white.pageTexture,
+          pillX,
+          pillY,
+          pillW,
+          pillH,
+          white.u0,
+          white.v0,
+          white.u1,
+          white.v1,
+          0.04,
+          0.06,
+          0.11,
+          near ? 0.84 : 0.62
+        );
+        if (near) {
+          this.drawPixelText(batch, text, item.x, labelY, scale, 0.42, 0.98, 1.0, 1.0, true);
+        } else {
+          this.drawPixelText(batch, text, item.x, labelY, scale, 0.94, 0.90, 0.74, 0.92, true);
         }
       }
     }
@@ -2148,25 +2387,132 @@ export class WebGL2Renderer {
     timeSec: number
   ): void {
     const col = parseHexRgb(tg.color, [1.0, 0.22, 0.28]);
-    const pulse = 0.65 + 0.35 * Math.sin(timeSec * 18);
+    const pulse = 0.68 + 0.32 * Math.sin(timeSec * 20);
     const prog = Math.max(0, Math.min(1, tg.progress));
+    const hotR = Math.min(1, col[0] * 0.55 + 0.45);
+    const hotG = Math.min(1, col[1] * 0.55 + 0.45);
+    const hotB = Math.min(1, col[2] * 0.55 + 0.45);
 
     if (tg.kind === 'line') {
-      batch.drawLine(whiteTex, wu, wv, tg.x, tg.y, tg.targetX, tg.targetY, Math.max(4, tg.radius * 2), col[0], col[1], col[2], 0.24 * pulse);
-      batch.drawLine(whiteTex, wu, wv, tg.x, tg.y, tg.targetX, tg.targetY, Math.max(1.5, tg.radius * 2 * prog), col[0], col[1], col[2], 0.72);
+      // Pixel-crisp hazard corridor with pulsing side rails, marching dashed centerline & charge sweep
+      const x0 = Math.round(tg.x);
+      const y0 = Math.round(tg.y);
+      const x1 = Math.round(tg.targetX);
+      const y1 = Math.round(tg.targetY);
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const len = Math.max(16, Math.hypot(dx, dy));
+      const ux = dx / len;
+      const uy = dy / len;
+      const halfW = Math.max(8, Math.min(20, tg.radius * 0.16));
+      const nx = -uy * halfW;
+      const ny = ux * halfW;
+
+      // Subtle translucent warning bed + progressive charge fill advancing along corridor
+      batch.drawLine(whiteTex, wu, wv, x0, y0, x1, y1, halfW * 2, col[0], col[1], col[2], 0.14 * pulse);
+      const sweepLen = len * prog;
+      if (sweepLen > 2) {
+        batch.drawLine(
+          whiteTex, wu, wv,
+          x0, y0, x0 + ux * sweepLen, y0 + uy * sweepLen,
+          Math.max(2, halfW * 1.65),
+          col[0], col[1], col[2], 0.32 + prog * 0.22
+        );
+      }
+
+      // Crisp pulsing outer hazard border rails (left & right flanks + end caps)
+      batch.drawLine(whiteTex, wu, wv, x0 + nx, y0 + ny, x1 + nx, y1 + ny, 1.5, hotR, hotG, hotB, 0.92 * pulse);
+      batch.drawLine(whiteTex, wu, wv, x0 - nx, y0 - ny, x1 - nx, y1 - ny, 1.5, hotR, hotG, hotB, 0.92 * pulse);
+      batch.drawLine(whiteTex, wu, wv, x1 + nx, y1 + ny, x1 - nx, y1 - ny, 1.5, hotR, hotG, hotB, 0.95);
+
+      // Marching crisp dashed centerline (6px dash / 5px gap)
+      const stride = 11;
+      const offset = (timeSec * 72) % stride;
+      for (let d = offset; d < len - 3; d += stride) {
+        const dEnd = Math.min(len - 1, d + 6);
+        batch.drawLine(
+          whiteTex, wu, wv,
+          x0 + ux * d, y0 + uy * d,
+          x0 + ux * dEnd, y0 + uy * dEnd,
+          1.5, 1.0, 0.96, 0.90, 0.88 * pulse
+        );
+      }
     } else if (tg.kind === 'circle') {
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.targetX, tg.targetY, Math.max(1, tg.radius - 2), tg.radius, 0, Math.PI * 2, 24, col[0], col[1], col[2], 0.85 * pulse);
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.targetX, tg.targetY, 0, tg.radius * prog, 0, Math.PI * 2, 20, col[0], col[1], col[2], 0.26 + prog * 0.2);
+      // Pixel-crisp impact zone: pulsing hazard perimeter, dashed inner warning ring, expanding fill & crosshair
+      const cx = Math.round(tg.targetX);
+      const cy = Math.round(tg.targetY);
+      const r = Math.max(12, Math.round(tg.radius));
+
+      // Subtle bed + expanding charge fill disc
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, 0, r, 0, Math.PI * 2, 24, col[0], col[1], col[2], 0.12 * pulse);
+      if (prog > 0.02) {
+        batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, 0, r * prog, 0, Math.PI * 2, 24, col[0], col[1], col[2], 0.24 + prog * 0.26);
+        batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, Math.max(1, r * prog - 1.5), r * prog, 0, Math.PI * 2, 24, hotR, hotG, hotB, 0.88);
+      }
+
+      // Crisp outer hazard border outline
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, r - 1.5, r, 0, Math.PI * 2, 28, hotR, hotG, hotB, 0.94 * pulse);
+
+      // Rotating dashed inner hazard ring (12 crisp arc ticks)
+      const dashCount = 12;
+      const rot = timeSec * 1.6;
+      const innerR = Math.max(4, r - 5);
+      for (let k = 0; k < dashCount; k++) {
+        const a0 = rot + (k / dashCount) * Math.PI * 2;
+        const a1 = a0 + (Math.PI * 2) / (dashCount * 2.1);
+        batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, innerR - 1, innerR, a0, a1, 3, col[0], col[1], col[2], 0.82 * pulse);
+      }
+
+      // Crisp pixel impact center crosshair
+      batch.drawLine(whiteTex, wu, wv, cx - 5, cy, cx + 5, cy, 1.2, 1, 0.95, 0.9, 0.9);
+      batch.drawLine(whiteTex, wu, wv, cx, cy - 5, cx, cy + 5, 1.2, 1, 0.95, 0.9, 0.9);
     } else if (tg.kind === 'ring') {
-      const inner = Math.max(6, tg.radius * 0.65);
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.x, tg.y, inner, tg.radius, 0, Math.PI * 2, 28, col[0], col[1], col[2], (0.25 + prog * 0.45) * pulse);
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.x, tg.y, tg.radius - 1.5, tg.radius, 0, Math.PI * 2, 28, 1, 0.85, 0.85, 0.85);
+      // Pixel-crisp nova ring with double pulsing hazard borders & rotating dashed warning band
+      const cx = Math.round(tg.x);
+      const cy = Math.round(tg.y);
+      const outer = Math.max(20, Math.round(tg.radius));
+      const inner = Math.max(8, Math.round(outer * 0.62));
+      const chargeR = inner + (outer - inner) * prog;
+
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, inner, outer, 0, Math.PI * 2, 32, col[0], col[1], col[2], 0.14 * pulse);
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, inner, chargeR, 0, Math.PI * 2, 32, col[0], col[1], col[2], 0.28 + prog * 0.25);
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, inner, inner + 1.5, 0, Math.PI * 2, 32, hotR, hotG, hotB, 0.9 * pulse);
+      batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, outer - 1.5, outer, 0, Math.PI * 2, 32, 1.0, 0.92, 0.92, 0.94 * pulse);
+
+      const midR = (inner + outer) * 0.5;
+      const ticks = 16;
+      const rot = -timeSec * 1.8;
+      for (let k = 0; k < ticks; k++) {
+        const a0 = rot + (k / ticks) * Math.PI * 2;
+        const a1 = a0 + (Math.PI * 2) / (ticks * 2.2);
+        batch.drawArcRibbon(whiteTex, wu, wv, cx, cy, midR - 1, midR + 0.5, a0, a1, 2, 1, 0.95, 0.9, 0.8 * pulse);
+      }
     } else {
-      // cone
-      const baseAng = Math.atan2(tg.targetY - tg.y, tg.targetX - tg.x);
+      // Pixel-crisp cone volley / cleave: sharp boundary rays, pulsing arc rim & dashed bisector
+      const ox = Math.round(tg.x);
+      const oy = Math.round(tg.y);
+      const r = Math.max(24, Math.round(tg.radius));
+      const baseAng = Math.atan2(tg.targetY - oy, tg.targetX - ox);
       const halfCone = 0.45;
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.x, tg.y, 4, tg.radius, baseAng - halfCone, baseAng + halfCone, 14, col[0], col[1], col[2], 0.22 * pulse);
-      batch.drawArcRibbon(whiteTex, wu, wv, tg.x, tg.y, 4, tg.radius * prog, baseAng - halfCone, baseAng + halfCone, 14, col[0], col[1], col[2], 0.55);
+      const aMin = baseAng - halfCone;
+      const aMax = baseAng + halfCone;
+
+      batch.drawArcRibbon(whiteTex, wu, wv, ox, oy, 6, r, aMin, aMax, 16, col[0], col[1], col[2], 0.14 * pulse);
+      batch.drawArcRibbon(whiteTex, wu, wv, ox, oy, 6, Math.max(8, r * prog), aMin, aMax, 16, col[0], col[1], col[2], 0.30 + prog * 0.24);
+      // Crisp outer arc border + flanking edge rays
+      batch.drawArcRibbon(whiteTex, wu, wv, ox, oy, r - 1.5, r, aMin, aMax, 16, hotR, hotG, hotB, 0.94 * pulse);
+      batch.drawLine(whiteTex, wu, wv, ox, oy, ox + Math.cos(aMin) * r, oy + Math.sin(aMin) * r, 1.5, hotR, hotG, hotB, 0.92 * pulse);
+      batch.drawLine(whiteTex, wu, wv, ox, oy, ox + Math.cos(aMax) * r, oy + Math.sin(aMax) * r, 1.5, hotR, hotG, hotB, 0.92 * pulse);
+
+      // Dashed bisector centerline
+      const ux = Math.cos(baseAng);
+      const uy = Math.sin(baseAng);
+      const stride = 11;
+      const offset = (timeSec * 64) % stride;
+      for (let d = 8 + offset; d < r - 4; d += stride) {
+        const dEnd = Math.min(r - 2, d + 5);
+        batch.drawLine(whiteTex, wu, wv, ox + ux * d, oy + uy * d, ox + ux * dEnd, oy + uy * dEnd, 1.3, 1, 0.95, 0.9, 0.85 * pulse);
+      }
     }
   }
 
@@ -2464,20 +2810,23 @@ export class WebGL2Renderer {
       activeWeapon.golden ? FX_MODE_GOLDEN : FX_MODE_NORMAL
     );
 
-    // Muzzle Flash sprite when flashTicks > 0
+    // Muzzle Flash sprite when flashTicks > 0 (cleanly scaled & barrel-offset for Custom Pack!)
     if (activeWeapon.flashTicks > 0) {
-      const muzzleDist = Math.max(10, wepSp.width - wepSp.originX + 2);
-      const mx = wx + Math.cos(drawAngle) * muzzleDist;
-      const my = wy + Math.sin(drawAngle) * muzzleDist;
       const mf = this.packManager.resolveSprite('fx_muzzle_flash', activeWeapon.flashTicks % 3);
+      const isCustomFlash = mf.sourcePack === 'custom';
+      const flashScale = isCustomFlash ? 0.50 : 0.95;
+      const barrelTip = Math.max(10, wepSp.width - wepSp.originX + 2);
+      const forwardOffset = isCustomFlash ? mf.width * flashScale * 0.45 + 3 : 1;
+      const mx = wx + Math.cos(drawAngle) * (barrelTip + forwardOffset);
+      const my = wy + Math.sin(drawAngle) * (barrelTip + forwardOffset);
       batch.setBlend('additive');
       batch.drawSprite(
         mf.pageTexture,
         mx, my, mf.width, mf.height,
         mf.originX, mf.originY,
-        1.1, 1.1, drawAngle,
+        flashScale, flashScale, drawAngle,
         mf.u0, mf.v0, mf.u1, mf.v1,
-        1, 0.92, 0.72, 1
+        1, 0.94, 0.76, 1
       );
       batch.setBlend('normal');
     }
@@ -2613,53 +2962,75 @@ export class WebGL2Renderer {
       return;
     }
 
-    // 5A. Render additive point lights into lightFbo cleared to biome ambientColor
+    // 5A. Render additive point lights into lightFbo cleared to lifted readable biome ambientColor
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.lightFbo!.fbo);
     gl.viewport(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     const amb = biome.ambientColor;
-    gl.clearColor(
-      Math.max(0.32, amb[0]),
-      Math.max(0.32, amb[1]),
-      Math.max(0.36, amb[2]),
-      1.0
-    );
+    const ambR = Math.min(0.88, Math.max(0.54, amb[0] * 1.65));
+    const ambG = Math.min(0.88, Math.max(0.54, amb[1] * 1.65));
+    const ambB = Math.min(0.88, Math.max(0.58, amb[2] * 1.65));
+    gl.clearColor(ambR, ambG, ambB, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     batch.begin(shaders.light, this.worldProj, timeSec, 'additive');
 
-    // Player visibility lantern halo + subtle Outcast visor glow
+    // Player crisp warm-cyan visibility lantern light + Outcast Power overdrive aura
     const px = this.interpCoord(state.player.prevX, state.player.x, alpha, settings.pixelSnap60);
     const py = this.interpCoord(state.player.prevY, state.player.y, alpha, settings.pixelSnap60);
-    batch.drawLight(px, py - 6, 138, 0.72, 0.76, 0.85, 0.85, 1.75, 0);
+    batch.drawLight(px, py - 6, 128, 0.78, 0.92, 1.0, 0.92, 1.65, 0);
     if (state.player.powerActiveTicks > 0) {
-      batch.drawLight(px, py - 6, 95, 1.0, 0.78, 0.26, 0.95, 1.6, 2.2);
+      batch.drawLight(px, py - 6, 108, 1.0, 0.80, 0.28, 1.05, 1.55, 2.2);
     }
 
     // Active projectiles glowing light pools
     for (let i = 0; i < state.projectiles.length; i++) {
       const pr = state.projectiles[i];
       const col = parseHexRgb(pr.color, [1.0, 0.85, 0.4]);
-      const rad = pr.owner === 'enemy' ? 32 : pr.explosiveTier > 0 ? 52 : 36;
-      batch.drawLight(pr.x, pr.y, rad, col[0], col[1], col[2], 0.78, 2.0, pr.id * 0.37);
+      const rad = pr.owner === 'enemy' ? 36 : pr.explosiveTier > 0 ? 58 : 40;
+      batch.drawLight(pr.x, pr.y, rad, col[0], col[1], col[2], 0.90, 1.9, pr.id * 0.37);
     }
 
     // Glowing Enemy & Boss Eyes + Phase 2 Reactor Aura (sh_eyeglow parity)
+    let hasBoss = state.activeBossId !== null;
     for (let i = 0; i < state.enemies.length; i++) {
       const e = state.enemies[i];
       if (e.isBoss) {
+        hasBoss = true;
         const isP2 = e.bossPhase === 2;
-        const bc = isP2 ? ([1.0, 0.26, 0.62] as const) : ([0.35, 0.92, 1.0] as const);
-        batch.drawLight(e.x, e.y - 16, isP2 ? 128 : 96, bc[0], bc[1], bc[2], isP2 ? 1.1 : 0.72, 1.8, e.id);
+        const bc = isP2 ? ([1.0, 0.28, 0.66] as const) : ([0.36, 0.94, 1.0] as const);
+        batch.drawLight(e.x, e.y - 16, isP2 ? 152 : 118, bc[0], bc[1], bc[2], isP2 ? 1.25 : 0.92, 1.7, e.id);
         // Pinpoint glowing boss eye glare
-        batch.drawLight(e.x, e.y - 26, 28, 1.0, isP2 ? 0.45 : 0.92, isP2 ? 0.75 : 1.0, 0.85, 2.2, e.id + 1);
+        batch.drawLight(e.x, e.y - 26, 34, 1.0, isP2 ? 0.48 : 0.94, isP2 ? 0.78 : 1.0, 0.95, 2.0, e.id + 1);
       } else {
         // Enemy glowing eye pinpoint + elemental burn/freeze/acid aura
-        batch.drawLight(e.x, e.y - 10, 20, 1.0, 0.25, 0.28, 0.48, 2.4, e.id * 0.5);
-        if (e.status.burnTicks > 0) batch.drawLight(e.x, e.y - 6, 36, 1.0, 0.45, 0.12, 0.75, 2.0, e.id);
-        if (e.status.freezeTicks > 0) batch.drawLight(e.x, e.y - 6, 34, 0.35, 0.9, 1.0, 0.7, 2.0, 0);
+        batch.drawLight(e.x, e.y - 10, 22, 1.0, 0.28, 0.30, 0.56, 2.3, e.id * 0.5);
+        if (e.status.burnTicks > 0) batch.drawLight(e.x, e.y - 6, 40, 1.0, 0.48, 0.14, 0.84, 1.9, e.id);
+        if (e.status.freezeTicks > 0) batch.drawLight(e.x, e.y - 6, 38, 0.36, 0.92, 1.0, 0.78, 1.9, 0);
         if (e.status.acidTicks > 0 || e.status.radTicks > 0) {
-          batch.drawLight(e.x, e.y - 6, 34, 0.55, 1.0, 0.25, 0.68, 2.0, 0);
+          batch.drawLight(e.x, e.y - 6, 38, 0.58, 1.0, 0.26, 0.76, 1.9, 0);
         }
+      }
+    }
+
+    // Glowing Arena Corner Braziers & Flank Rune Lights in Boss Arenas
+    if (hasBoss && state.screenMode === 'combat') {
+      const ts = state.map.tileSize || TILE_SIZE;
+      const arenaW = state.map.width * ts;
+      const arenaH = state.map.height * ts;
+      const acc = biome.accentGlow;
+      const insetX = ts * 4.5;
+      const insetY = ts * 4.5;
+      const braziers: readonly (readonly [number, number])[] = [
+        [insetX, insetY],
+        [arenaW - insetX, insetY],
+        [insetX, arenaH - insetY],
+        [arenaW - insetX, arenaH - insetY],
+        [insetX, arenaH * 0.5],
+        [arenaW - insetX, arenaH * 0.5],
+      ];
+      for (let b = 0; b < braziers.length; b++) {
+        const [bx, by] = braziers[b];
+        batch.drawLight(bx, by, 124, acc[0], acc[1], acc[2], 0.76, 1.75, b * 1.3 + 0.7);
       }
     }
 
@@ -2674,13 +3045,13 @@ export class WebGL2Renderer {
             : pk.kind === 'xp'
               ? ([0.28, 0.92, 1.0] as const)
               : ([0.75, 0.45, 1.0] as const);
-      batch.drawLight(pk.x, pk.y, 26, c[0], c[1], c[2], 0.45, 2.2, pk.id * 0.4);
+      batch.drawLight(pk.x, pk.y, 28, c[0], c[1], c[2], 0.52, 2.1, pk.id * 0.4);
     }
 
     // Frost Crystals icy glare
     for (let i = 0; i < state.freezeStorm.crystals.length; i++) {
       const cr = state.freezeStorm.crystals[i];
-      batch.drawLight(cr.x, cr.y - 8, 62, 0.35, 0.92, 1.0, 0.95, 1.8, cr.id);
+      batch.drawLight(cr.x, cr.y - 8, 66, 0.38, 0.94, 1.0, 1.0, 1.75, cr.id);
     }
 
     // Bifrost Exit Portal rainbow glow
@@ -2688,22 +3059,41 @@ export class WebGL2Renderer {
       const r = 0.5 + 0.5 * Math.sin(timeSec * 3.0);
       const g = 0.5 + 0.5 * Math.sin(timeSec * 3.0 + 2.1);
       const b = 0.5 + 0.5 * Math.sin(timeSec * 3.0 + 4.2);
-      batch.drawLight(state.map.exitX, state.map.exitY, 108, r, g, b, 1.15, 1.7, 1.0);
+      batch.drawLight(state.map.exitX, state.map.exitY, 116, r, g, b, 1.22, 1.65, 1.0);
     }
 
-    // Hub Landmarks ambient neon glows
+    // Hub Landmarks ambient neon glows + 4 Hub Pillar Rune Braziers
     if (state.screenMode === 'hub') {
+      const ts = state.map.tileSize || TILE_SIZE;
+      const hubBraziers: readonly (readonly [number, number])[] = [
+        [10.5 * ts, 6.5 * ts],
+        [10.5 * ts, 17.5 * ts],
+        [24.5 * ts, 6.5 * ts],
+        [24.5 * ts, 17.5 * ts],
+      ];
+      for (let b = 0; b < hubBraziers.length; b++) {
+        batch.drawLight(hubBraziers[b][0], hubBraziers[b][1], 96, 1.0, 0.68, 0.30, 0.64, 1.75, b + 0.5);
+      }
+
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const it = state.hubInteractables[i];
         const hc =
           it.id === 'loki'
-            ? ([0.2, 1.0, 0.62] as const)
-            : it.id === 'skill_tree'
-              ? ([0.35, 1.0, 0.55] as const)
-              : it.id === 'bifrost'
-                ? ([0.35, 0.92, 1.0] as const)
-                : ([0.95, 0.68, 0.32] as const);
-        batch.drawLight(it.x, it.y - 12, 86, hc[0], hc[1], hc[2], 0.82, 1.75, i + 1);
+            ? ([0.20, 1.0, 0.62] as const)
+            : it.id === 'jotunn_matic'
+              ? ([0.24, 0.90, 1.0] as const)
+              : it.id === 'skill_tree'
+                ? ([0.42, 1.0, 0.48] as const)
+                : it.id === 'modifiers'
+                  ? ([0.82, 0.34, 1.0] as const)
+                  : it.id === 'weapondex'
+                    ? ([1.0, 0.72, 0.24] as const)
+                    : it.id === 'enemydex'
+                      ? ([1.0, 0.28, 0.38] as const)
+                      : it.id === 'bifrost'
+                        ? ([0.36, 0.94, 1.0] as const)
+                        : ([0.98, 0.76, 0.34] as const);
+        batch.drawLight(it.x, it.y - 12, 96, hc[0], hc[1], hc[2], 0.90, 1.70, i + 1);
       }
     }
 
