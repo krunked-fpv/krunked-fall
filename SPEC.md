@@ -27,7 +27,7 @@
 8. **Hilda — The Druid** (`hilda`, source `Dryad`): Ability **Summon Seedling** (autonomous seedling companion following and attacking enemies); Power **Overgrowth** (burst healing + enraged thorn-shooting seedling swarm).
 
 - **10 Skins**: `Original`, `Wastelander`, `Frost Walker`, `Warlord`, `Fire Walker`, `Snakecharmer`, `Ascended`, `Champion`, `Overlord`, and **`Krunkedslayer`** (rebranded from retail key `skin_odinskin`).
-- **Yggdrasil Branching Skill Tree**: 35+ passive skill nodes across shared & Outcast-specific branches (HP from pickups, Lucky Guns, Connoisseur quality, Gold Rush, Turret Endurance, Drill March, Powerful/Invigorating Berserk, Shadow Strike, Dual Wield Frenzy, Mod Limit+, Ammo Capacity, Speed, Luck).
+- **Yggdrasil Branching Skill Tree**: 42 passive skill nodes (18 shared + 24 Outcast-specific) across 5 collision-free tier rows (HP from pickups, Lucky Guns, Connoisseur quality, Gold Rush, Turret Endurance, Drill March, Powerful/Invigorating Berserk, Shadow Strike, Dual Wield Frenzy, Mod Limit+, Ammo Capacity, Speed, Luck).
 
 ### 2.2 Arsenal (221 Weapons) & Mod System (76 Mods/Runes)
 - **Weapons**: Exactly `221` unique weapons (`uniqueId` 1000..1220+) spanning:
@@ -38,12 +38,12 @@
 - **Mods & Runes**: Exactly `76` distinct functional weapon mods/runes matching `Mods.csv` (Turbo Trigger, Trigger Juicer, Turbo Rune, Triple/Double Chamber, Burst/Miniburst Mag, Hyper Funnel, Slow Barrage, Big Mag, Range Rail, Choke Barrel, Laser Scope, Bounce Casing, Heavy Barrel, Overloader, Lifesteal Syringe, Blood/Homing/Ice/Fire/Acid/Frag/Speed/Hunter/Ethereal/Ragnarok/Soul/Wind/Magnet/Shield/Endless/Quad/Octuple/Flak/Haste/Lightning Runes, Teleporter, Reloader, Crazy Reloader, Armor Plating, Gun Drone, Carbon Fiber, Blast Shield, Heavy Casing, Bayonette, Golden Bullet, Sentient AI, Stick, Radioactive, etc.). Every mod composes multiplicatively/additively inside `src/sim/modGraph.ts` with zero dead/no-op mods.
 
 ### 2.3 World Structure, Overworld Map & Bestiary
-- **4 Acts & 43+ Named Nodes**:
+- **4 Acts & 45 Named Nodes**:
   - **Act 0 (Hub & Training)**: Hub Outpost (Loki's Head, Jotunn-Matic 3000, Yggdrasil Skill Tree, Bifrost Portal, Run Modifiers, Weapondex, Enemydex, Training Dummy) + Weapon Shop, Easy/Medium/Hard Training Grounds.
   - **Act 1 — Land of the Wolf**: Bandit Canyon, Dunes, Squeaky Sewers, Saltpan, Cold Cave, Giant's Battlefield, Cannibal Subway, Viking Keep, Sand City, Supply Stash, Campfire, Arena, Infinite Desert, **Fenrir's Den** (Boss 1: Irradiated Fenrir → Meltdown Fenrir), **Jotunheim** (Boss 2: Queen Skadi → Warrior Skadi).
   - **Act 2 — Coils of the Serpent**: Stony Field, Grassland, Deadlands, Mushroom Cave, Wild City, Pine Forest, Maggot Garage, Viking Keep II, Research Lab, Military Base, Infinite Forest, **Lost Temple** (Boss 3: Loki's Body + Clones → Loki's Body in Overdrive), **Helheim** (Boss 4: Hel + Hands → Hel Scorned).
-  - **Act 3 — Shadow of Krunked**: Ash Wastes, Trenches, Lava Land, Belly of the Beast, Cinder City, Viking Keep III, Redhall, Sulfur Lake, Infinite Magma, **Muspelheim** (Boss 5: Surtur + Crown/Limbs → Hate Incarnate), **Balder's Shrine** (Boss 6: **Krunked** → **Corrupted Krunked**).
-- **Bestiary**: 100+ enemy definitions across 12 archetypes mapped into Act 1–3 biome pools + 6 two-phase Major Bosses with distinct telegraphed attack patterns, Phase 1 → Phase 2 transformation bursts (switching music Stem A → Stem B), and infinite post-Krunked **Loop Mode** scaling (`loopCount >= 1`).
+  - **Act 3 — Shadow of Krunked**: Ash Wastes, Trenches, Lava Land, Belly of the Beast, Cinder City, Viking Keep III, Redhall, Sulfur Lake, Infinite Magma, Ember Campfire, **Muspelheim** (Boss 5: Surtur + Crown/Limbs → Hate Incarnate), **Balder's Shrine** (Boss 6: **Krunked** → **Corrupted Krunked**).
+- **Bestiary**: 129 enemy definitions across 12 archetypes mapped into Act 1–3 biome pools + 6 two-phase Major Bosses with distinct telegraphed attack patterns, Phase 1 → Phase 2 transformation bursts (switching music Stem A → Stem B), two-pass deterministic boss/enemy separation pushout, emergency dry-gun melee bash fallback, capped self-explosion safety, and infinite post-Krunked **Loop Mode** scaling (`loopCount >= 1`).
 
 ## 3. Simulation & Game-Feel Invariants
 

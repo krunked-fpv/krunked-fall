@@ -1,0 +1,98 @@
+{
+  "slug": "krunkedfall",
+  "brandName": "Krunkedfall",
+  "sourceGenre": "Twin-Stick Pixel-Art Action Roguelite",
+  "simHz": 60,
+  "renderMode": "WebGL2 640x360 Multi-Pass Pixel-Art FBO",
+  "feelParams": {
+    "logicalWidth": 640,
+    "logicalHeight": 360,
+    "tileSize": 16,
+    "defaultTargetFps": 120,
+    "supportedTargetFps": [30, 60, 120],
+    "pixelSnap60Option": true,
+    "cameraAimLookAhead": 0.2,
+    "inputBufferTicks": 6,
+    "hitIframesTicks": 36,
+    "hitstopTicksRange": [2, 4],
+    "overkillThresholdRatio": 0.45,
+    "selfExplosionDamageCap": 22,
+    "freezeStormDefaultThresholdTicks": 2700,
+    "audioPolyphonyCap": 24,
+    "audioCrossfadeSec": 0.35
+  },
+  "coreMechanics": [
+    "Twin-Stick 60Hz Deterministic Combat & Swept DDA Collision",
+    "221-Weapon Arsenal (Tiers 1-6, Ranged & Melee, 6 Ammo Classes, Golden Upgrades)",
+    "76 Composable Weapon Mods & Runes with Elemental Synergies",
+    "8 Playable Outcasts with Active Abilities, Powers, 10 Skins & 42-Node Yggdrasil Skill Tree",
+    "Procedural Destructible Tilemaps with BFS Connectivity & Indestructible Outer Bedrock",
+    "45-Node Branching Overworld Map Across 3 Acts + Hub Outpost",
+    "6 Two-Phase Mechanical Norse Bosses with Telegraphs & Dynamic Stem A/B Music",
+    "Anti-Camping Fimbulwinter Freeze Storm & Frost Crystals",
+    "Endless Post-Clear Loop Mode",
+    "Dual-Mode Built-In Original Pixel Art & Hot-Swappable Owned Custom Pack (IndexedDB)"
+  ],
+  "spliceableModules": [
+    {
+      "name": "Composable Gunsmithing & Mod Graph",
+      "paths": ["src/data/weapons.ts", "src/data/mods.ts", "src/sim/modGraph.ts", "src/sim/weaponExec.ts"],
+      "contracts": ["WeaponDef", "ModDef", "ModStatDelta", "WeaponInstance", "EffectiveWeaponStats"]
+    },
+    {
+      "name": "Swept Destructible Tilemap & BFS Worldgen",
+      "paths": ["src/sim/tilemap.ts", "src/sim/collision.ts", "src/sim/worldgen.ts"],
+      "contracts": ["TileMapState", "TileKind", "TileRayHit", "CircleSweepHit"]
+    },
+    {
+      "name": "6-Pass 640x360 WebGL2 Pixel-Art Renderer & Dual Pack Manager",
+      "paths": ["src/render/shaders.ts", "src/render/spriteBatch.ts", "src/render/webglRenderer.ts", "src/render/packManager.ts"],
+      "contracts": ["RenderSettings", "PackManifest", "SimEvent", "BiomePalette"]
+    },
+    {
+      "name": "DOM-Free Procedural Pixel Art & Outlined Bitmap Font Generator",
+      "paths": ["src/assets/pixelArtGen.ts", "src/assets/bitmapFont.ts", "src/assets/builtinPack.ts"],
+      "contracts": ["PackManifest", "SpriteMeta", "BitmapFontAtlas"]
+    },
+    {
+      "name": "Dynamic Intro/A/B/Outro Web Audio Synth Engine",
+      "paths": ["src/audio/audioEngine.ts", "src/audio/synthMusic.ts", "src/audio/synthSfx.ts"],
+      "contracts": ["AudioSettings", "SimEvent", "AssetPackMode"]
+    },
+    {
+      "name": "Anti-Camping Freeze Storm Escalator",
+      "paths": ["src/sim/freezeStorm.ts"],
+      "contracts": ["FreezeStormState", "FrostCrystalState"]
+    },
+    {
+      "name": "Deterministic PRNG, FNV-1a Hash & 156-Playtester Persona Gauntlet",
+      "paths": ["src/sim/rng.ts", "src/sim/hash.ts", "scripts/verify/playtest-100.ts"],
+      "contracts": ["SimState", "InputFrame"]
+    }
+  ],
+  "contractTypes": [
+    "SimState",
+    "InputFrame",
+    "SimEvent",
+    "WeaponDef",
+    "ModDef",
+    "ModStatDelta",
+    "WeaponInstance",
+    "OutcastDef",
+    "SkinDef",
+    "SkillNodeDef",
+    "EnemyDef",
+    "BossDef",
+    "BiomePalette",
+    "BiomeNodeDef",
+    "TileMapState",
+    "FreezeStormState",
+    "RenderSettings",
+    "AudioSettings",
+    "PackManifest",
+    "SaveData",
+    "DebugBridge"
+  ],
+  "repoPath": "C:\\krunked-fall",
+  "buildDate": "2026-11-25"
+}

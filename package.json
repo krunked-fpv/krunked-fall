@@ -13,6 +13,7 @@
     "test": "vitest run",
     "verify:assets": "tsx scripts/verify/verify-assets.ts",
     "verify:sim": "tsx scripts/verify/verify-sim.ts",
+    "playtest:156": "tsx scripts/verify/playtest-100.ts",
     "verify:all": "tsx scripts/verify/verify-all.ts",
     "verify": "tsx scripts/verify/verify-all.ts",
     "build": "tsc --noEmit && vite build",
