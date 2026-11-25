@@ -1,0 +1,29 @@
+{
+  "name": "krunked-krunkedfall",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KRUNKEDFALL — Standalone Krunked recreation of Odinfall with 1:1 roguelite mechanic parity and 640x360 multi-pass WebGL2 pixel-art rendering.",
+  "scripts": {
+    "extract": "tsx tools/extract-assets.ts",
+    "oracle": "tsx tools/oracle-dump.ts",
+    "dev": "vite",
+    "play": "vite --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify:assets": "tsx scripts/verify/verify-assets.ts",
+    "verify:sim": "tsx scripts/verify/verify-sim.ts",
+    "verify:all": "tsx scripts/verify/verify-all.ts",
+    "verify": "tsx scripts/verify/verify-all.ts",
+    "build": "tsc --noEmit && vite build",
+    "export:dna": "tsx scripts/export-dna.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "seek-bzip": "^1.0.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}
