@@ -254,10 +254,7 @@ export class CombatHud {
     this.freezeBox.style.display = 'none';
     this.freezeBox.dataset.testid = 'freeze-storm-bar';
     this.freezeText = document.createElement('div');
-    this.freezeText.style.fontSize = '10px';
-    this.freezeText.style.fontWeight = '800';
-    this.freezeText.style.color = 'var(--kf-cyan)';
-    this.freezeText.style.letterSpacing = '0.1em';
+    this.freezeText.className = 'kf-freeze-label';
     const freezeTrack = document.createElement('div');
     freezeTrack.className = 'kf-bar-track kf-bar-track-sm';
     this.freezeFill = document.createElement('div');
