@@ -181,6 +181,7 @@ export function spawnPickup(
     modId?: string;
     vx?: number;
     vy?: number;
+    lifeTicks?: number;
   } = {},
 ): PickupState | null {
   if (state.pickups.length >= MAX_PICKUPS) {
@@ -211,7 +212,9 @@ export function spawnPickup(
     weaponUniqueId: opts.weaponUniqueId,
     modId: opts.modId,
     opened: false,
-    lifeTicks: kind.startsWith('chest_') || kind === 'weapon' || kind === 'mod' ? 36000 : 1800,
+    lifeTicks:
+      opts.lifeTicks ??
+      (kind.startsWith('chest_') || kind === 'weapon' || kind === 'mod' ? 36000 : 1800),
   };
 
   state.pickups.push(pickup);
@@ -575,14 +578,31 @@ function handleEnemyDeath(
   spawnPickup(state, 'gold', enemy.x, enemy.y, { value: goldAmount });
   spawnPickup(state, 'xp', enemy.x, enemy.y, { value: def.xpValue });
 
+  const activeDef = activeWeapon ? getWeaponDef(activeWeapon.uniqueId) : null;
+  const secondaryWeapon = p.weapons[p.activeSlot === 0 ? 1 : 0];
+  const secondaryDef = secondaryWeapon ? getWeaponDef(secondaryWeapon.uniqueId) : null;
+  const targetRangedDef =
+    activeDef && activeDef.ammoType !== 0
+      ? activeDef
+      : secondaryDef && secondaryDef.ammoType !== 0
+        ? secondaryDef
+        : null;
+  const activeAmmoType: AmmoType | null = targetRangedDef ? targetRangedDef.ammoType : null;
+  const minActiveAmmoCost = targetRangedDef ? Math.max(1, targetRangedDef.ammoCost) : 1;
+  const isLowAmmo =
+    activeAmmoType !== null &&
+    (p.ammo[activeAmmoType] < minActiveAmmoCost ||
+      p.ammo[activeAmmoType] < p.maxAmmo[activeAmmoType] * 0.2);
+  const isDryAmmo = activeAmmoType !== null && p.ammo[activeAmmoType] < minActiveAmmoCost;
+
   const ammoDropMult = getSkillEffectValue(state.skillRanks, 'ammo_drop_mult', 1);
-  if (chance(state, Math.min(0.85, 0.32 * ammoDropMult))) {
-    const activeDef = activeWeapon ? getWeaponDef(activeWeapon.uniqueId) : null;
-    const ammoType: AmmoType =
-      activeDef && activeDef.ammoType !== 0
-        ? activeDef.ammoType
-        : (nextInt(state, 1, 5) as AmmoType);
-    spawnPickup(state, 'ammo', enemy.x, enemy.y, { value: 18, ammoType });
+  const emergencyAmmoBonus = isLowAmmo ? 0.25 : 0;
+  if (isDryAmmo || chance(state, Math.min(0.92, 0.32 * ammoDropMult + emergencyAmmoBonus))) {
+    const ammoType: AmmoType = activeAmmoType ?? (nextInt(state, 1, 5) as AmmoType);
+    const ammoValue = isLowAmmo
+      ? Math.max(22, minActiveAmmoCost * 2, Math.round(p.maxAmmo[ammoType] * 0.25))
+      : Math.max(18, Math.round(p.maxAmmo[ammoType] * 0.16));
+    spawnPickup(state, 'ammo', enemy.x, enemy.y, { value: ammoValue, ammoType });
   }
 
   if (chance(state, p.hp < p.maxHp * 0.45 ? 0.36 : 0.16)) {
@@ -793,7 +813,8 @@ export function triggerExplosion(
     } else if (!selfDamageImmune) {
       const selfResist = getSkillEffectValue(state.skillRanks, 'self_damage_resist', 0);
       if (selfResist < 1) {
-        const selfDmg = damage * 0.3 * (1 - selfResist);
+        const rawSelfDmg = damage * 0.3 * (1 - selfResist);
+        const selfDmg = Math.min(22, Math.floor(p.maxHp * 0.25), Math.round(rawSelfDmg));
         if (selfDmg >= 1) {
           applyDamageToPlayer(state, selfDmg, x, y, 'explosive');
         }
@@ -1300,9 +1321,15 @@ export function stepPickups(state: SimState, input: InputFrame): void {
     const isChest = pk.kind.startsWith('chest_');
     const isAutoCollect = pk.kind === 'gold' || pk.kind === 'xp' || pk.kind === 'hp' || pk.kind === 'ammo' || pk.kind === 'mod';
 
-    // Magnet pull toward player for resources & mods
-    if (isAutoCollect && dist < magnetRadius && dist > 1) {
-      const pull = Math.min(5.5, 1.8 + (1 - dist / magnetRadius) * 4.2);
+    // Magnet pull toward player for resources & mods (extended scavenger radius when low on ammo)
+    const pkAmmoType = pk.kind === 'ammo' ? (pk.ammoType ?? 1) : 0;
+    const isUrgentAmmo =
+      pk.kind === 'ammo' &&
+      pkAmmoType > 0 &&
+      p.ammo[pkAmmoType] < Math.max(10, p.maxAmmo[pkAmmoType] * 0.25);
+    const effectiveMagnetRadius = isUrgentAmmo ? magnetRadius * 2.1 : magnetRadius;
+    if (isAutoCollect && dist < effectiveMagnetRadius && dist > 1) {
+      const pull = Math.min(6.2, 1.8 + (1 - dist / effectiveMagnetRadius) * 4.4);
       pk.x += (dx / dist) * pull;
       pk.y += (dy / dist) * pull;
     }

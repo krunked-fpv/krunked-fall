@@ -417,6 +417,68 @@ function fireSingleVolley(
   }
 }
 
+function executeEmergencyGunButtBash(
+  state: SimState,
+  originX: number,
+  originY: number,
+  aimAngle: number,
+  damage: number,
+  weaponUniqueId: number,
+): void {
+  const slashRadius = 26;
+  const slashArc = 1.5;
+
+  state.events.push({
+    type: 'melee_slash',
+    x: originX,
+    y: originY,
+    angle: aimAngle,
+    radius: slashRadius,
+    arc: slashArc,
+    color: '#ffbe0b',
+  });
+
+  if (state.projectiles.length >= MAX_PROJECTILES) return;
+  const proj: ProjectileState = {
+    id: state.nextEntityId++,
+    owner: 'player',
+    weaponUniqueId,
+    x: originX,
+    y: originY,
+    prevX: originX,
+    prevY: originY,
+    vx: Math.cos(aimAngle) * 2.2,
+    vy: Math.sin(aimAngle) * 2.2,
+    radius: 16,
+    damage,
+    damageType: 3,
+    speed: 2.2,
+    lifeTicks: 4,
+    maxLifeTicks: 4,
+    scale: 0.9,
+    bouncesLeft: 0,
+    pierceLeft: 6,
+    heatseekingRate: 0,
+    isMelee: true,
+    meleeArc: slashArc,
+    burnTier: 0,
+    freezeTier: 0,
+    acidTier: 0,
+    explosiveTier: 0,
+    radioactiveTier: 0,
+    lightningTier: 0,
+    lifestealChance: 0,
+    chainJump: false,
+    ethereal: true,
+    teleportOwner: false,
+    goldDropBonus: false,
+    ragnarokNova: false,
+    color: '#ffbe0b',
+    spriteKey: 'proj_bullet',
+  };
+  state.projectiles.push(proj);
+}
+
 export function tryFireWeapon(
   state: SimState,
   weapon: WeaponInstance,
@@ -440,17 +502,33 @@ export function tryFireWeapon(
   const isMagicLeafFree = p.outcastId === 'gunilla' && p.powerActiveTicks > 0;
   if (def.ammoType !== 0 && !opts.freeAmmo && !isMagicLeafFree) {
     if (p.ammo[def.ammoType] < stats.ammoCost) {
-      if (state.tick % 30 === 0 && !opts.isOffhand) {
-        state.events.push({
-          type: 'floating_text',
-          x: p.x,
-          y: p.y - 14,
-          text: 'NO AMMO',
-          color: '#ff4d6d',
-          scale: 0.85,
-        });
+      if (opts.isOffhand) {
+        return false;
       }
-      return false;
+      // Emergency Melee Gun-Butt Bash when completely dry (prevents ammo softlocks)
+      const bashDamage = 18 + p.level * 2;
+      const cosA = Math.cos(aimAngle);
+      const sinA = Math.sin(aimAngle);
+      const bashX = p.x + cosA * 14;
+      const bashY = p.y + sinA * 14;
+
+      weapon.cooldownTicks = 22;
+      weapon.recoilOffset = -8;
+      weapon.recoilAngle = 0.25;
+      addCameraTrauma(state, 0.1, cosA, sinA);
+
+      executeEmergencyGunButtBash(state, bashX, bashY, aimAngle, bashDamage, def.uniqueId);
+      p.shotsFired += 1;
+
+      state.events.push({
+        type: 'floating_text',
+        x: p.x,
+        y: p.y - 16,
+        text: 'DRY! BASH',
+        color: '#ff9f1c',
+        scale: 0.85,
+      });
+      return true;
     }
     if (!chance(state, stats.refundChance)) {
       p.ammo[def.ammoType] = Math.max(0, p.ammo[def.ammoType] - stats.ammoCost);
@@ -501,12 +579,16 @@ export function stepWeapons(
 
     // Trigger primary attack
     if (wantsFire) {
+      const activeDef = getWeaponDef(activeWeapon.uniqueId);
+      const canMirrorDualWield =
+        activeDef.ammoType === 0 ||
+        (p.outcastId === 'gunilla' && p.powerActiveTicks > 0) ||
+        p.ammo[activeDef.ammoType] >= activeStats.ammoCost;
       if (tryFireWeapon(state, activeWeapon, p.aimAngle, input.aimWorldX, input.aimWorldY)) {
         p.bufferedInput.fire = 0;
-        // Gunilla Dual Wield: mirror burst if no offhand equipped
-        if (isDualWielding && !offhandWeapon) {
-          const def = getWeaponDef(activeWeapon.uniqueId);
-          fireSingleVolley(state, activeWeapon, def, activeStats, p.aimAngle + 0.06, input.aimWorldX, input.aimWorldY, true);
+        // Gunilla Dual Wield: mirror burst if no offhand equipped and primary had ammo
+        if (isDualWielding && !offhandWeapon && canMirrorDualWield) {
+          fireSingleVolley(state, activeWeapon, activeDef, activeStats, p.aimAngle + 0.06, input.aimWorldX, input.aimWorldY, true);
         }
       }
     } else if (activeStats.meleeAutoAttack && activeWeapon.cooldownTicks <= 0) {

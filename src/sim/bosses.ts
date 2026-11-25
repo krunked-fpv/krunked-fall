@@ -6,12 +6,13 @@
 // Surtur (-> Hate Incarnate), and Krunked (-> Corrupted Krunked).
 
 import type {
+  AmmoType,
   BossId,
   EnemyState,
   ProjectileState,
   SimState,
 } from '../contracts/index.js';
-import { getBossDef } from '../data/index.js';
+import { getBossDef, getWeaponDef } from '../data/index.js';
 import { resolveCircleVsTilemap } from './collision.js';
 import {
   MAX_ENEMIES,
@@ -28,6 +29,32 @@ import {
 import { computeRunModifiers } from './modGraph.js';
 import { nextRange } from './rng.js';
 import { damageTilesInRadius, findNearestWalkablePos } from './tilemap.js';
+
+const BOSS_AMMO_SUPPLY_INTERVAL_TICKS = 420;
+
+function getEquippedRangedAmmoTypes(state: SimState): AmmoType[] {
+  const p = state.player;
+  const types: AmmoType[] = [];
+  const order: Array<0 | 1> = p.activeSlot === 0 ? [0, 1] : [1, 0];
+  for (let i = 0; i < order.length; i++) {
+    const wep = p.weapons[order[i]];
+    if (!wep) continue;
+    const def = getWeaponDef(wep.uniqueId);
+    if (def.ammoType !== 0 && !types.includes(def.ammoType)) {
+      types.push(def.ammoType);
+    }
+  }
+  return types.length > 0 ? types : [1];
+}
+
+function computeBossAmmoPackValue(
+  state: SimState,
+  ammoType: AmmoType,
+  fraction = 0.35,
+): number {
+  const maxVal = state.player.maxAmmo[ammoType] || 36;
+  return Math.max(24, Math.round(maxVal * fraction));
+}
 
 function fireBossProjectile(
   state: SimState,
@@ -223,6 +250,26 @@ export function transitionBossToPhase2(state: SimState, boss: EnemyState): void 
     color: bossDef.phase2Color,
     scale: 1.5,
   });
+
+  // Drop 3 generous ammo supply pickups matching the player's equipped ranged weapon ammo types
+  const p = state.player;
+  const ammoTypes = getEquippedRangedAmmoTypes(state);
+  const toPlayerAngle = Math.atan2(p.y - boss.y, p.x - boss.x);
+  for (let i = 0; i < 3; i++) {
+    const ammoType = ammoTypes[i % ammoTypes.length];
+    const value = computeBossAmmoPackValue(state, ammoType, 0.35);
+    if (i === 0) {
+      // Launch one supply pack toward the player's side so long-range kiters receive Phase 2 resupply
+      const dropX = p.x - Math.cos(toPlayerAngle) * 32;
+      const dropY = p.y - Math.sin(toPlayerAngle) * 32;
+      spawnPickup(state, 'ammo', dropX, dropY, { value, ammoType, lifeTicks: 36000 });
+    } else {
+      const spreadAngle = toPlayerAngle + (i === 1 ? 0.95 : -0.95);
+      const dropX = boss.x + Math.cos(spreadAngle) * (boss.radius + 26);
+      const dropY = boss.y + Math.sin(spreadAngle) * (boss.radius + 26);
+      spawnPickup(state, 'ammo', dropX, dropY, { value, ammoType, lifeTicks: 36000 });
+    }
+  }
 }
 
 /**
@@ -542,6 +589,44 @@ export function stepBossAI(state: SimState, boss: EnemyState): void {
   if (!boss.bossId) return;
   const bossDef = getBossDef(boss.bossId);
   const p = state.player;
+
+  // Periodic boss-fight ammo supply pack every ~420 ticks (7s) when active weapon ammo < 25% of max
+  if (state.tick > 0 && state.tick % BOSS_AMMO_SUPPLY_INTERVAL_TICKS === 0) {
+    const activeWep = p.weapons[p.activeSlot];
+    const activeDef = activeWep ? getWeaponDef(activeWep.uniqueId) : null;
+    const secondaryWep = p.weapons[p.activeSlot === 0 ? 1 : 0];
+    const secondaryDef = secondaryWep ? getWeaponDef(secondaryWep.uniqueId) : null;
+    const targetDef =
+      activeDef && activeDef.ammoType !== 0
+        ? activeDef
+        : secondaryDef && secondaryDef.ammoType !== 0
+          ? secondaryDef
+          : null;
+
+    if (targetDef && targetDef.ammoType !== 0) {
+      const aType = targetDef.ammoType;
+      const threshold = Math.max(targetDef.ammoCost, p.maxAmmo[aType] * 0.25);
+      if (p.ammo[aType] < threshold) {
+        const dropAngle = Math.atan2(boss.y - p.y, boss.x - p.x) + Math.PI * 0.45;
+        const dropX = p.x + Math.cos(dropAngle) * 30;
+        const dropY = p.y + Math.sin(dropAngle) * 30;
+        const value = Math.max(
+          targetDef.ammoCost * 2,
+          computeBossAmmoPackValue(state, aType, 0.35),
+        );
+        spawnPickup(state, 'ammo', dropX, dropY, { value, ammoType: aType, lifeTicks: 36000 });
+        state.events.push({
+          type: 'floating_text',
+          x: dropX,
+          y: dropY - 12,
+          text: 'AMMO SUPPLY!',
+          color: '#ffbe0b',
+          scale: 0.9,
+        });
+      }
+    }
+  }
+
   const runMods = computeRunModifiers(state.activeModifiers);
   const p2 = boss.bossPhase === 2;
   const color = p2 ? bossDef.phase2Color : bossDef.accentColor;

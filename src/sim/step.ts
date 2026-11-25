@@ -58,6 +58,7 @@ import {
   syncPlayerDerivedStats,
 } from './modGraph.js';
 import { nextInt, normalizeSeed, pick } from './rng.js';
+import { computeReachableMask, worldToTile } from './tilemap.js';
 import { createWeaponInstance, stepWeapons } from './weaponExec.js';
 import {
   generateHubLayout,
@@ -73,6 +74,42 @@ const BASE_MAX_AMMO: readonly [number, number, number, number, number, number] =
   180, // 4: Energy
   36, // 5: Explosives
 ];
+
+// Deterministic per-SimState counter tracking consecutive ticks with all equipped weapons dry in combat
+const combatDryTicksMap = new WeakMap<SimState, number>();
+const EMERGENCY_RESUPPLY_DRY_TICKS = 360;
+
+function spawnArenaAmmoSupplies(
+  state: SimState,
+  points: ReadonlyArray<{ x: number; y: number }>,
+): void {
+  if (points.length === 0) return;
+  const p = state.player;
+  const ammoTypes: AmmoType[] = [];
+  const order: Array<0 | 1> = p.activeSlot === 0 ? [0, 1] : [1, 0];
+  for (let i = 0; i < order.length; i++) {
+    const wep = p.weapons[order[i]];
+    if (!wep) continue;
+    const def = getWeaponDef(wep.uniqueId);
+    if (def.ammoType !== 0 && !ammoTypes.includes(def.ammoType)) {
+      ammoTypes.push(def.ammoType);
+    }
+  }
+  const pool: AmmoType[] = ammoTypes.length > 0 ? ammoTypes : [1, 2, 3];
+
+  for (let i = 0; i < points.length; i++) {
+    const pt = points[i];
+    const ammoType = pool[i % pool.length];
+    const value = Math.max(24, Math.round(p.maxAmmo[ammoType] * 0.35));
+    spawnPickup(state, 'ammo', pt.x, pt.y, {
+      value,
+      ammoType,
+      vx: 0,
+      vy: 0,
+      lifeTicks: 36000,
+    });
+  }
+}
 
 export function createNeutralInput(): InputFrame {
   return {
@@ -355,6 +392,7 @@ export function drainSimEvents(state: SimState): SimEvent[] {
  */
 export function enterHub(state: SimState): SimState {
   const hubWorld = generateHubLayout();
+  combatDryTicksMap.set(state, 0);
   state.screenMode = 'hub';
   state.hubPanel = 'none';
   state.paused = false;
@@ -411,6 +449,7 @@ export function enterHub(state: SimState): SimState {
  * Transitions cleanly to the Bifrost Overworld Map screen.
  */
 export function enterOverworld(state: SimState): SimState {
+  combatDryTicksMap.set(state, 0);
   state.screenMode = 'overworld';
   state.hubPanel = 'none';
   state.paused = false;
@@ -438,6 +477,7 @@ export function enterNode(state: SimState, nodeId: string): SimState {
   }
 
   const prevAct = state.act;
+  combatDryTicksMap.set(state, 0);
   state.currentNodeId = node.id;
   state.act = node.act;
   state.hubPanel = 'none';
@@ -491,6 +531,9 @@ export function enterNode(state: SimState, nodeId: string): SimState {
 
   state.screenMode = 'combat';
 
+  // Spawn guaranteed perimeter/arena ammo supply pickups for Boss Arenas and Combat rooms
+  spawnArenaAmmoSupplies(state, world.ammoPoints);
+
   if (node.nodeType === 'boss' && node.bossId) {
     spawnBossById(state, node.bossId);
     return state;
@@ -519,13 +562,23 @@ export function enterNode(state: SimState, nodeId: string): SimState {
     Math.round(baseCount * (1 + state.loopCount * 0.25)),
   );
 
+  const reachable = computeReachableMask(state.map);
   for (let i = 0; i < totalEnemies; i++) {
     const pt = world.spawnPoints[i % world.spawnPoints.length];
-    const jitterX = nextInt(state, -12, 12);
-    const jitterY = nextInt(state, -12, 12);
+    const jitterX = nextInt(state, -4, 4);
+    const jitterY = nextInt(state, -4, 4);
     const defId =
       node.nodeType === 'training' && i === 0 ? 'training_dummy' : pick(state, pool);
-    state.enemies.push(createEnemyState(state, defId, pt.x + jitterX, pt.y + jitterY));
+    const enemy = createEnemyState(state, defId, pt.x + jitterX, pt.y + jitterY);
+    const etx = worldToTile(enemy.x, state.map.tileSize);
+    const ety = worldToTile(enemy.y, state.map.tileSize);
+    if (reachable[ety * state.map.width + etx] !== 1) {
+      enemy.x = pt.x;
+      enemy.y = pt.y;
+      enemy.prevX = pt.x;
+      enemy.prevY = pt.y;
+    }
+    state.enemies.push(enemy);
   }
 
   state.events.push({
@@ -762,6 +815,13 @@ export function buyShopOffer(state: SimState, offerId: string): boolean {
   if (!offer) return false;
   const p = state.player;
   if (p.gold < offer.price) return false;
+
+  if (offer.kind === 'golden_upgrade') {
+    const activeWeapon = p.weapons[p.activeSlot];
+    if (!activeWeapon || activeWeapon.golden) {
+      return false;
+    }
+  }
 
   p.gold -= offer.price;
   offer.purchased = true;
@@ -1170,6 +1230,54 @@ export function stepSim(state: SimState, input: InputFrame): SimState {
   // 11. Pickups, Chests & Lava Hazards
   stepPickups(state, input);
   checkPlayerLavaHazard(state);
+
+  // Prolonged-combat dry-lock safeguard: if ALL equipped weapon slots stay dry for 6s in combat,
+  // drop a tactical Outpost Emergency Ammo Supply pack nearby so ammo softlocks are impossible.
+  if (state.screenMode === 'combat' && state.enemies.length > 0) {
+    const canFireSlot = (slot: 0 | 1): boolean => {
+      const w = p.weapons[slot];
+      if (!w) return false;
+      const d = getWeaponDef(w.uniqueId);
+      return d.ammoType === 0 || p.ammo[d.ammoType] >= Math.max(1, d.ammoCost);
+    };
+    if (!canFireSlot(0) && !canFireSlot(1)) {
+      const nextDry = (combatDryTicksMap.get(state) ?? 0) + 1;
+      if (nextDry >= EMERGENCY_RESUPPLY_DRY_TICKS) {
+        combatDryTicksMap.set(state, 0);
+        const targetDef =
+          activeDef.ammoType !== 0
+            ? activeDef
+            : p.weapons[1]
+              ? getWeaponDef(p.weapons[1].uniqueId)
+              : null;
+        if (targetDef && targetDef.ammoType !== 0) {
+          const aType = targetDef.ammoType;
+          const value = Math.max(
+            24,
+            targetDef.ammoCost * 2,
+            Math.round(p.maxAmmo[aType] * 0.3),
+          );
+          const dropX = p.x + Math.cos(p.aimAngle + Math.PI * 0.5) * 26;
+          const dropY = p.y + Math.sin(p.aimAngle + Math.PI * 0.5) * 26;
+          spawnPickup(state, 'ammo', dropX, dropY, { value, ammoType: aType, lifeTicks: 36000 });
+          state.events.push({
+            type: 'floating_text',
+            x: dropX,
+            y: dropY - 12,
+            text: 'EMERGENCY AMMO!',
+            color: '#ffbe0b',
+            scale: 0.9,
+          });
+        }
+      } else {
+        combatDryTicksMap.set(state, nextDry);
+      }
+    } else {
+      combatDryTicksMap.set(state, 0);
+    }
+  } else {
+    combatDryTicksMap.set(state, 0);
+  }
 
   // 12. Anti-Camping Fimbulwinter Freeze Storm (combat only)
   stepFreezeStorm(state);
