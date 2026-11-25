@@ -2,7 +2,8 @@
 // KRUNKEDFALL — Branching Overworld Node Map UI (Act 0 -> Act 1 -> Act 2 -> Act 3)
 // ============================================================================
 // Super Mario World-style branching route graph with glowing SVG connections,
-// cleared/unlocked/boss/shop/campfire/stash/arena/infinite node indicators,
+// dedicated left Act Rail (zero banner-node overlap), deterministic relaxation
+// layout solver guaranteeing zero node-node overlap across all 45 nodes,
 // tactical node preview sidebar, and click-to-deploy via Bifrost.
 
 import type { ActId, BiomeNodeDef, NodeType, SimState } from '../contracts/index.js';
@@ -34,20 +35,188 @@ const NODE_TYPE_GLYPH: Record<NodeType, string> = {
   shrine: '★ SHRINE',
 };
 
-const CANVAS_W = 980;
-const CANVAS_H = 1120;
-const MIN_MAP_X = 320;
-const MAX_MAP_X = 1220;
-const MIN_MAP_Y = 510;
-const MAX_MAP_Y = 2470;
+// Spacious vertical layout sized to fit horizontally within the 1280px map pane
+// (960px wide) with a dedicated 196px Left Act Rail so Act banners NEVER touch
+// any of the 45 nodes, while vertical height gives generous breathing room.
+const CANVAS_W = 960;
+const CANVAS_H = 2200;
+const ACT_RAIL_RIGHT = 200;
+const PLAYFIELD_LEFT = 220;
+const PLAYFIELD_RIGHT = CANVAS_W - 20;
+const PLAYFIELD_TOP = 64;
+const PLAYFIELD_BOTTOM = CANVAS_H - 54;
 
-function projectNodePos(node: BiomeNodeDef): { x: number; y: number } {
-  const nx = (node.mapX - MIN_MAP_X) / (MAX_MAP_X - MIN_MAP_X);
-  const ny = (node.mapY - MIN_MAP_Y) / (MAX_MAP_Y - MIN_MAP_Y);
+const MIN_MAP_X = 352;
+const MAX_MAP_X = 1184;
+const MIN_MAP_Y = 560;
+const MAX_MAP_Y = 2416;
+
+interface LayoutNode {
+  node: BiomeNodeDef;
+  x: number;
+  y: number;
+  originX: number;
+  originY: number;
+  halfW: number;
+  halfH: number;
+}
+
+interface OverworldLayout {
+  positions: Map<string, { x: number; y: number }>;
+  actBands: Record<ActId, { minY: number; maxY: number; bannerY: number }>;
+}
+
+const MIN_PAIR_DX = 96;
+const MIN_PAIR_DY = 38;
+const GAP_X = 16;
+const GAP_Y = 14;
+
+function estimateNodeHalfExtents(node: BiomeNodeDef): { halfW: number; halfH: number } {
+  const charCount = Math.max(node.displayName.length, 9);
+  const estWidth = Math.max(node.nodeType === 'boss' ? 102 : 90, Math.ceil(charCount * 6.2 + 20));
   return {
-    x: Math.round(70 + nx * (CANVAS_W - 140)),
-    y: Math.round(52 + ny * (CANVAS_H - 104)),
+    halfW: Math.ceil(estWidth * 0.5),
+    halfH: 20,
   };
+}
+
+let cachedOverworldLayout: OverworldLayout | null = null;
+
+function computeOverworldLayout(): OverworldLayout {
+  if (cachedOverworldLayout) return cachedOverworldLayout;
+
+  const items: LayoutNode[] = OVERWORLD_NODES.map((node) => {
+    const { halfW, halfH } = estimateNodeHalfExtents(node);
+    const nx = (node.mapX - MIN_MAP_X) / (MAX_MAP_X - MIN_MAP_X);
+    const ny = (node.mapY - MIN_MAP_Y) / (MAX_MAP_Y - MIN_MAP_Y);
+    const usableLeft = PLAYFIELD_LEFT + halfW;
+    const usableRight = PLAYFIELD_RIGHT - halfW;
+    const ox = usableLeft + nx * (usableRight - usableLeft);
+    const oy = PLAYFIELD_TOP + ny * (PLAYFIELD_BOTTOM - PLAYFIELD_TOP);
+    return {
+      node,
+      x: ox,
+      y: oy,
+      originX: ox,
+      originY: oy,
+      halfW,
+      halfH,
+    };
+  });
+
+  // Deterministic pairwise minimum-separation relaxation pass
+  const ITERATIONS = 220;
+  for (let iter = 0; iter < ITERATIONS; iter++) {
+    let anyOverlap = false;
+
+    for (let i = 0; i < items.length; i++) {
+      const a = items[i];
+      for (let j = i + 1; j < items.length; j++) {
+        const b = items[j];
+        const reqDx = Math.max(MIN_PAIR_DX, a.halfW + b.halfW + GAP_X);
+        const reqDy = Math.max(MIN_PAIR_DY, a.halfH + b.halfH + GAP_Y);
+
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+
+        if (absDx < reqDx && absDy < reqDy) {
+          anyOverlap = true;
+          const penX = reqDx - absDx;
+          const penY = reqDy - absDy;
+
+          // Push along minimum-relative-penetration axis so local graph topology stays intact
+          const normPenX = penX / reqDx;
+          const normPenY = penY / reqDy;
+
+          if (normPenY <= normPenX * 1.15) {
+            const signY = dy !== 0 ? Math.sign(dy) : a.originY <= b.originY ? 1 : -1;
+            const shift = penY * 0.52 + 0.5;
+            a.y -= signY * shift;
+            b.y += signY * shift;
+          } else {
+            const signX = dx !== 0 ? Math.sign(dx) : a.originX <= b.originX ? 1 : -1;
+            const shift = penX * 0.52 + 0.5;
+            a.x -= signX * shift;
+            b.x += signX * shift;
+          }
+        }
+      }
+    }
+
+    // Gentle spring pull toward original projected positions in early iterations only
+    const pull = iter < 80 ? 0.018 : 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (pull > 0) {
+        it.x += (it.originX - it.x) * pull;
+        it.y += (it.originY - it.y) * pull;
+      }
+      const minX = PLAYFIELD_LEFT + it.halfW;
+      const maxX = PLAYFIELD_RIGHT - it.halfW;
+      if (it.x < minX) it.x = minX;
+      if (it.x > maxX) it.x = maxX;
+      if (it.y < PLAYFIELD_TOP) it.y = PLAYFIELD_TOP;
+      if (it.y > PLAYFIELD_BOTTOM) it.y = PLAYFIELD_BOTTOM;
+    }
+
+    if (!anyOverlap && iter > 20) break;
+  }
+
+  // Final deterministic rounding & bounds verification
+  const positions = new Map<string, { x: number; y: number }>();
+  const actMinMax: Record<ActId, { minY: number; maxY: number }> = {
+    0: { minY: Infinity, maxY: -Infinity },
+    1: { minY: Infinity, maxY: -Infinity },
+    2: { minY: Infinity, maxY: -Infinity },
+    3: { minY: Infinity, maxY: -Infinity },
+  };
+
+  for (const it of items) {
+    const rx = Math.round(it.x);
+    const ry = Math.round(it.y);
+    positions.set(it.node.id, { x: rx, y: ry });
+    const band = actMinMax[it.node.act];
+    if (ry < band.minY) band.minY = ry;
+    if (ry > band.maxY) band.maxY = ry;
+  }
+
+  const actBands: Record<ActId, { minY: number; maxY: number; bannerY: number }> = {
+    3: {
+      minY: actMinMax[3].minY,
+      maxY: actMinMax[3].maxY,
+      bannerY: Math.max(24, actMinMax[3].minY - 22),
+    },
+    2: {
+      minY: actMinMax[2].minY,
+      maxY: actMinMax[2].maxY,
+      bannerY: Math.round((actMinMax[2].minY + actMinMax[2].maxY) * 0.5 - 22),
+    },
+    1: {
+      minY: actMinMax[1].minY,
+      maxY: actMinMax[1].maxY,
+      bannerY: Math.round((actMinMax[1].minY + actMinMax[1].maxY) * 0.5 - 22),
+    },
+    0: {
+      minY: actMinMax[0].minY,
+      maxY: actMinMax[0].maxY,
+      bannerY: Math.min(CANVAS_H - 96, Math.round((actMinMax[0].minY + actMinMax[0].maxY) * 0.5 - 22)),
+    },
+  };
+
+  // Guarantee vertical separation between Act rail banners as well
+  const orderedActs: ActId[] = [3, 2, 1, 0];
+  for (let i = 1; i < orderedActs.length; i++) {
+    const prev = actBands[orderedActs[i - 1]];
+    const curr = actBands[orderedActs[i]];
+    if (curr.bannerY < prev.bannerY + 86) {
+      curr.bannerY = prev.bannerY + 86;
+    }
+  }
+
+  cachedOverworldLayout = { positions, actBands };
+  return cachedOverworldLayout;
 }
 
 export class OverworldUi {
@@ -107,6 +276,8 @@ export class OverworldUi {
 
     const clearedSet = new Set(state.clearedNodeIds);
     const unlockedSet = new Set(state.unlockedNodeIds);
+    const layout = computeOverworldLayout();
+    const posMap = layout.positions;
 
     this.root.innerHTML = '';
 
@@ -182,41 +353,65 @@ export class OverworldUi {
 
     const canvas = document.createElement('div');
     canvas.className = 'kf-overworld-canvas';
+    canvas.style.width = `${CANVAS_W}px`;
+    canvas.style.height = `${CANVAS_H}px`;
 
-    // Act Zone Watermarks
-    const actBanners: Array<{ act: ActId; y: number; color: string }> = [
-      { act: 3, y: 120, color: '#ff3a4e' },
-      { act: 2, y: 500, color: '#58f59a' },
-      { act: 1, y: 820, color: '#ff9b35' },
-      { act: 0, y: 1030, color: '#39d6ff' },
+    // Dedicated Left Act Rail backdrop so banners NEVER collide with map nodes
+    const actRail = document.createElement('div');
+    actRail.className = 'kf-overworld-act-rail';
+    actRail.style.width = `${ACT_RAIL_RIGHT}px`;
+    canvas.appendChild(actRail);
+
+    // Act Zone Banners inside Left Rail + Subtle Horizontal Band Dividers
+    const actBanners: Array<{ act: ActId; tag: string; color: string }> = [
+      { act: 3, tag: 'ACT III', color: '#ff3a4e' },
+      { act: 2, tag: 'ACT II', color: '#58f59a' },
+      { act: 1, tag: 'ACT I', color: '#ff9b35' },
+      { act: 0, tag: 'ACT 0', color: '#39d6ff' },
     ];
     for (const b of actBanners) {
+      const band = layout.actBands[b.act];
       const lbl = document.createElement('div');
-      lbl.style.position = 'absolute';
-      lbl.style.left = '18px';
-      lbl.style.top = `${b.y}px`;
-      lbl.style.fontSize = '11px';
-      lbl.style.fontWeight = '800';
-      lbl.style.letterSpacing = '0.2em';
+      lbl.className = 'kf-overworld-act-banner';
+      lbl.style.top = `${band.bannerY}px`;
+      lbl.style.borderLeftColor = b.color;
       lbl.style.color = b.color;
-      lbl.style.opacity = '0.62';
-      lbl.style.pointerEvents = 'none';
-      lbl.textContent = ACT_TITLES[b.act];
+      const fullTitle = ACT_TITLES[b.act];
+      const parts = fullTitle.split(' — ');
+      lbl.innerHTML =
+        parts.length === 2
+          ? `<div class="kf-act-banner-kicker">${parts[0]}</div><div class="kf-act-banner-name">${parts[1]}</div>`
+          : `<div class="kf-act-banner-kicker">${b.tag}</div><div class="kf-act-banner-name">${fullTitle}</div>`;
       canvas.appendChild(lbl);
     }
 
-    // SVG Branching Route Connections
+    // SVG Branching Route Connections + Subtle Act Band Hairlines
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('class', 'kf-overworld-svg');
     svg.setAttribute('viewBox', `0 0 ${CANVAS_W} ${CANVAS_H}`);
 
-    const drawnEdges = new Set<string>();
-    const posMap = new Map<string, { x: number; y: number }>();
-    for (const node of OVERWORLD_NODES) {
-      posMap.set(node.id, projectNodePos(node));
+    const dividerPairs: Array<[ActId, ActId]> = [
+      [3, 2],
+      [2, 1],
+      [1, 0],
+    ];
+    for (const [upperAct, lowerAct] of dividerPairs) {
+      const divY = Math.round(
+        (layout.actBands[upperAct].maxY + layout.actBands[lowerAct].minY) * 0.5,
+      );
+      const hr = document.createElementNS(svgNS, 'line');
+      hr.setAttribute('x1', String(ACT_RAIL_RIGHT));
+      hr.setAttribute('y1', String(divY));
+      hr.setAttribute('x2', String(CANVAS_W));
+      hr.setAttribute('y2', String(divY));
+      hr.setAttribute('stroke', 'rgba(70, 97, 133, 0.25)');
+      hr.setAttribute('stroke-width', '1');
+      hr.setAttribute('stroke-dasharray', '6 6');
+      svg.appendChild(hr);
     }
 
+    const drawnEdges = new Set<string>();
     for (const node of OVERWORLD_NODES) {
       const fromPos = posMap.get(node.id)!;
       for (const targetId of node.connections) {
@@ -406,10 +601,10 @@ export class OverworldUi {
 
   private scrollToAct(act: ActId | 'all'): void {
     if (!this.mapWrapRef) return;
-    if (act === 3) this.mapWrapRef.scrollTop = 0;
-    else if (act === 2) this.mapWrapRef.scrollTop = 360;
-    else if (act === 1) this.mapWrapRef.scrollTop = 680;
-    else if (act === 0) this.mapWrapRef.scrollTop = 900;
+    if (act === 'all') return;
+    const layout = computeOverworldLayout();
+    const band = layout.actBands[act];
+    this.mapWrapRef.scrollTop = Math.max(0, band.minY - 72);
   }
 
   public dispose(): void {

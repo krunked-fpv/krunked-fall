@@ -74,9 +74,9 @@ export class TitleScreen {
     const header = document.createElement('div');
     header.className = 'kf-title-header';
     header.innerHTML = `
-      <div class="kf-title-rune-strip">ᛟ RAGNAROK PROTOCOL // THREE-ROCK PRISON ᛟ</div>
+      <div class="kf-title-rune-strip" data-testid="title-eyebrow">ᛟ RAGNAROK PROTOCOL // THREE-ROCK PRISON ᛟ</div>
       <h1 class="kf-title-logo">${UI_LABELS.gameTitle}</h1>
-      <div class="kf-title-subtitle">${UI_LABELS.gameSubtitle}</div>
+      <div class="kf-title-subtitle" data-testid="title-subtitle">${UI_LABELS.gameSubtitle}</div>
     `;
     this.root.appendChild(header);
 

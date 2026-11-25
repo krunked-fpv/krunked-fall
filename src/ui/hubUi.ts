@@ -20,6 +20,10 @@ import {
   type SkinId,
 } from '../contracts/index.js';
 import {
+  buildBuiltinPackPages,
+  getBuiltinPackManifest,
+} from '../assets/index.js';
+import {
   BOSSES,
   CHALLENGES,
   ENEMIES,
@@ -36,6 +40,24 @@ import {
   getWeaponDef,
 } from '../data/index.js';
 import { computeRunModifiers } from '../sim/index.js';
+
+function parseHexColor(hex: string): [number, number, number] {
+  const clean = hex.charCodeAt(0) === 35 ? hex.slice(1) : hex;
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return [Number.isNaN(r) ? 255 : r, Number.isNaN(g) ? 255 : g, Number.isNaN(b) ? 255 : b];
+  }
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return [Number.isNaN(r) ? 255 : r, Number.isNaN(g) ? 255 : g, Number.isNaN(b) ? 255 : b];
+}
+
+function clampByte(n: number): number {
+  return n < 0 ? 0 : n > 255 ? 255 : Math.round(n);
+}
 
 export interface HubUiCallbacks {
   onOpenPanel(panel: HubPanel): void;
@@ -70,6 +92,9 @@ export class HubUi {
   private weaponDiscoveredOnly = false;
   private enemySearch = '';
   private enemyCategoryFilter = 'all';
+  private jotunnPreviewCanvas: HTMLCanvasElement | null = null;
+  private jotunnPreviewOffscreen: HTMLCanvasElement | null = null;
+  private jotunnPreviewFrame = -1;
 
   constructor(parent: HTMLElement, callbacks: HubUiCallbacks) {
     this.cb = callbacks;
@@ -113,6 +138,8 @@ export class HubUi {
     if (!visible) {
       this.lastHudSig = '';
       this.lastModalSig = '';
+      this.jotunnPreviewCanvas = null;
+      this.jotunnPreviewFrame = -1;
     }
   }
 
@@ -156,6 +183,8 @@ export class HubUi {
         this.modalBackdrop.style.display = 'none';
         this.modalBackdrop.innerHTML = '';
         this.lastModalSig = '';
+        this.jotunnPreviewCanvas = null;
+        this.jotunnPreviewFrame = -1;
       }
       return;
     }
@@ -165,6 +194,17 @@ export class HubUi {
     if (modalSig !== this.lastModalSig) {
       this.lastModalSig = modalSig;
       this.renderModal(state, save);
+    } else if (state.hubPanel === 'jotunn_matic' && this.jotunnPreviewCanvas) {
+      const animFrame = Math.floor(state.tick / 14) % 4;
+      if (animFrame !== this.jotunnPreviewFrame) {
+        this.jotunnPreviewFrame = animFrame;
+        this.drawOutcastPreview(
+          this.jotunnPreviewCanvas,
+          p.outcastId,
+          p.skinId,
+          animFrame,
+        );
+      }
     }
   }
 
@@ -369,9 +409,14 @@ export class HubUi {
 
   private renderModal(state: SimState, save: SaveData): void {
     this.modalBackdrop.innerHTML = '';
+    this.jotunnPreviewCanvas = null;
+    this.jotunnPreviewFrame = -1;
 
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-cyan kf-modal';
+    modal.className =
+      state.hubPanel === 'skill_tree'
+        ? 'kf-panel kf-panel-cyan kf-modal kf-modal-skill'
+        : 'kf-panel kf-panel-cyan kf-modal';
 
     const titleMap: Record<Exclude<HubPanel, 'none'>, { title: string; sub: string }> = {
       loki: { title: "LOKI'S HEAD", sub: 'DECAPITATED MASTERMIND · THREE-ROCK LAB' },
@@ -509,6 +554,7 @@ export class HubUi {
 
   private buildJotunnMaticBody(body: HTMLElement, state: SimState, save: SaveData): void {
     const selected = getOutcastDef(state.player.outcastId);
+    const activeSkin = getSkinDef(state.player.skinId);
     const primaryWep = getWeaponDef(selected.startingWeaponUniqueId);
     const secondaryWep =
       selected.secondaryWeaponUniqueId !== undefined
@@ -540,22 +586,23 @@ export class HubUi {
 
     const detail = document.createElement('div');
     detail.className = 'kf-outcast-detail';
-    detail.innerHTML = `
+
+    const infoCol = document.createElement('div');
+    infoCol.className = 'kf-outcast-info-col';
+    infoCol.innerHTML = `
       <div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:inline-block;width:12px;height:12px;background:${selected.accentColor};border:1px solid #fff;"></span>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+          <span style="display:inline-block;width:11px;height:11px;background:${selected.accentColor};border:1px solid #fff;"></span>
           <strong style="font-size:15px;letter-spacing:0.1em;color:#fff;">${selected.name} — ${selected.title}</strong>
         </div>
-        <div style="display:flex;gap:12px;font-size:11px;margin-bottom:8px;color:var(--kf-text-dim);">
+        <div style="display:flex;gap:14px;font-size:11px;margin-bottom:6px;color:var(--kf-text-dim);">
           <span>HP <strong style="color:var(--kf-emerald);">${selected.maxHp}</strong></span>
           <span>SPEED <strong style="color:var(--kf-cyan);">${selected.moveSpeed.toFixed(2)}</strong></span>
           <span>CHARGES <strong style="color:var(--kf-amber);">${selected.abilityMaxCharges}</strong></span>
-        </div>
-        <div style="font-size:11px;color:var(--kf-text-dim);">
-          LOADOUT: <strong style="color:#fff;">${primaryWep.name}</strong>${secondaryWep ? ` + <strong style="color:#fff;">${secondaryWep.name}</strong>` : ''}
+          <span>LOADOUT <strong style="color:#fff;">${primaryWep.name}</strong>${secondaryWep ? ` + <strong style="color:#fff;">${secondaryWep.name}</strong>` : ''}</span>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
+      <div class="kf-outcast-kit-grid">
         <div style="padding:6px 8px;background:var(--kf-bg-2);border-left:3px solid var(--kf-cyan);">
           <div style="font-size:10px;color:var(--kf-cyan);font-weight:800;">ABILITY: ${selected.abilityName}</div>
           <div style="font-size:11px;color:var(--kf-text-dim);">${selected.abilityDesc}</div>
@@ -566,6 +613,54 @@ export class HubUi {
         </div>
       </div>
     `;
+
+    // Right-Hand Live 4x Pixel-Art Outcast & Skin Preview Chamber
+    const previewPanel = document.createElement('div');
+    previewPanel.className = 'kf-outcast-preview-panel';
+    const isSlayer = activeSkin.id === 'krunkedslayer';
+    const glowColor = isSlayer ? '#00ff9f' : activeSkin.id === 'original' ? selected.accentColor : activeSkin.paletteSwap[0];
+    const borderCol = isSlayer ? '#ff2a85' : glowColor;
+
+    const previewHeader = document.createElement('div');
+    previewHeader.className = 'kf-outcast-preview-header';
+    previewHeader.innerHTML = `
+      <span style="font-size:9px;letter-spacing:0.12em;color:var(--kf-text-dim);font-weight:800;">LIVE CLONE 4×</span>
+      <span class="kf-pill" style="font-size:9px;padding:1px 6px;border-color:${borderCol};color:${isSlayer ? '#ff2a85' : glowColor};">${activeSkin.name}</span>
+    `;
+
+    const stage = document.createElement('div');
+    stage.className = 'kf-outcast-preview-stage';
+    stage.style.borderColor = borderCol;
+    stage.style.background = `radial-gradient(circle at 50% 56%, ${glowColor}2c 0%, #0d1320 62%, #070a11 100%)`;
+
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = 96;
+    previewCanvas.height = 96;
+    previewCanvas.className = 'kf-outcast-preview-canvas';
+    previewCanvas.dataset.testid = 'jotunn-preview-canvas';
+    previewCanvas.setAttribute('aria-label', `${selected.name} pixel-art preview (${activeSkin.name} skin)`);
+    stage.appendChild(previewCanvas);
+
+    const previewFoot = document.createElement('div');
+    previewFoot.className = 'kf-outcast-preview-foot';
+    previewFoot.innerHTML = `
+      <div class="kf-swatch-row" style="width:100%;">
+        <span class="kf-swatch" style="background:${activeSkin.paletteSwap[0]};"></span>
+        <span class="kf-swatch" style="background:${activeSkin.paletteSwap[1]};"></span>
+        <span class="kf-swatch" style="background:${activeSkin.paletteSwap[2]};"></span>
+      </div>
+      <div style="font-size:9px;color:${isSlayer ? '#00ff9f' : 'var(--kf-text-dim)'};text-align:center;line-height:1.25;">
+        ${activeSkin.unlockCondition}
+      </div>
+    `;
+
+    previewPanel.append(previewHeader, stage, previewFoot);
+    detail.append(infoCol, previewPanel);
+
+    const animFrame = Math.floor(state.tick / 14) % 4;
+    this.jotunnPreviewCanvas = previewCanvas;
+    this.jotunnPreviewFrame = animFrame;
+    this.drawOutcastPreview(previewCanvas, selected.id, activeSkin.id, animFrame);
 
     const skinHeader = document.createElement('div');
     skinHeader.style.display = 'flex';
@@ -607,6 +702,140 @@ export class HubUi {
     body.append(outcastGrid, detail, skinHeader, skinGrid);
   }
 
+  private drawOutcastPreview(
+    canvas: HTMLCanvasElement,
+    outcastId: OutcastId,
+    skinId: SkinId,
+    frameIndex: number,
+  ): void {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const outcast = getOutcastDef(outcastId);
+    const skin = getSkinDef(skinId);
+    const manifest = getBuiltinPackManifest();
+    const { pages } = buildBuiltinPackPages();
+
+    const spriteKey = manifest.logicalAliases[outcast.spriteKey] ?? outcast.spriteKey;
+    const meta = manifest.sprites[spriteKey];
+    if (!meta || meta.frames.length === 0) return;
+
+    const frame = meta.frames[Math.abs(frameIndex) % meta.frames.length];
+    const page = pages[frame.page];
+    if (!page) return;
+
+    const fw = frame.srcW;
+    const fh = frame.srcH;
+    if (!this.jotunnPreviewOffscreen) {
+      this.jotunnPreviewOffscreen = document.createElement('canvas');
+    }
+    const off = this.jotunnPreviewOffscreen;
+    if (off.width !== fw || off.height !== fh) {
+      off.width = fw;
+      off.height = fh;
+    }
+    const offCtx = off.getContext('2d');
+    if (!offCtx) return;
+
+    const imgData = offCtx.createImageData(fw, fh);
+    const dst = imgData.data;
+    const src = page.rgba;
+    const pageW = page.width;
+
+    const applySkinSwap = skinId !== 'original';
+    const p0 = parseHexColor(skin.paletteSwap[0]);
+    const p1 = parseHexColor(skin.paletteSwap[1]);
+    const p2 = parseHexColor(skin.paletteSwap[2]);
+
+    for (let y = 0; y < fh; y++) {
+      const srcRowOffset = ((frame.srcY + y) * pageW + frame.srcX) * 4;
+      const dstRowOffset = y * fw * 4;
+      for (let x = 0; x < fw; x++) {
+        const sIdx = srcRowOffset + x * 4;
+        const dIdx = dstRowOffset + x * 4;
+        const r = src[sIdx];
+        const g = src[sIdx + 1];
+        const b = src[sIdx + 2];
+        const a = src[sIdx + 3];
+
+        if (a === 0 || !applySkinSwap) {
+          dst[dIdx] = r;
+          dst[dIdx + 1] = g;
+          dst[dIdx + 2] = b;
+          dst[dIdx + 3] = a;
+          continue;
+        }
+
+        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        const maxC = Math.max(r, g, b);
+        const minC = Math.min(r, g, b);
+        const chroma = (maxC - minC) / 255;
+
+        // Preserve razor-sharp dark ink pixel outlines
+        if (lum < 0.11) {
+          dst[dIdx] = r;
+          dst[dIdx + 1] = g;
+          dst[dIdx + 2] = b;
+          dst[dIdx + 3] = a;
+          continue;
+        }
+
+        // Preserve specular white eyes / highlights with light primary sheen
+        if (lum > 0.94 && chroma < 0.08) {
+          dst[dIdx] = clampByte(r * 0.78 + p0[0] * 0.22);
+          dst[dIdx + 1] = clampByte(g * 0.78 + p0[1] * 0.22);
+          dst[dIdx + 2] = clampByte(b * 0.78 + p0[2] * 0.22);
+          dst[dIdx + 3] = a;
+          continue;
+        }
+
+        // Vivid accents (mohawks, glowing visors, goggles, chest runes) -> bold skin accents
+        if (chroma > 0.3 && lum > 0.22) {
+          const target = lum > 0.52 ? p0 : p1;
+          dst[dIdx] = clampByte(r * 0.24 + target[0] * 0.76);
+          dst[dIdx + 1] = clampByte(g * 0.24 + target[1] * 0.76);
+          dst[dIdx + 2] = clampByte(b * 0.24 + target[2] * 0.76);
+          dst[dIdx + 3] = a;
+          continue;
+        }
+
+        // Shaded armor & garments -> 3-stop skin palette remap preserving cel-shading
+        let sr: number;
+        let sg: number;
+        let sb: number;
+        if (lum < 0.38) {
+          const t = Math.max(0, Math.min(1, (lum - 0.11) / 0.27));
+          sr = p2[0] + (p1[0] - p2[0]) * t;
+          sg = p2[1] + (p1[1] - p2[1]) * t;
+          sb = p2[2] + (p1[2] - p2[2]) * t;
+        } else {
+          const t = Math.max(0, Math.min(1, (lum - 0.38) / 0.56));
+          sr = p1[0] + (p0[0] - p1[0]) * t;
+          sg = p1[1] + (p0[1] - p1[1]) * t;
+          sb = p1[2] + (p0[2] - p1[2]) * t;
+        }
+
+        // Preserve original pixel luminance nuance so armor bevels stay crisp
+        const shadeBoost = 0.52 + lum * 0.62;
+        dst[dIdx] = clampByte(r * 0.36 + sr * shadeBoost * 0.64);
+        dst[dIdx + 1] = clampByte(g * 0.36 + sg * shadeBoost * 0.64);
+        dst[dIdx + 2] = clampByte(b * 0.36 + sb * shadeBoost * 0.64);
+        dst[dIdx + 3] = a;
+      }
+    }
+
+    offCtx.putImageData(imgData, 0, 0);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    const scale = 4;
+    const drawW = fw * scale;
+    const drawH = fh * scale;
+    const dx = Math.floor((canvas.width - drawW) * 0.5);
+    const dy = Math.floor((canvas.height - drawH) * 0.5);
+    ctx.drawImage(off, 0, 0, fw, fh, dx, dy, drawW, drawH);
+  }
+
   // ==========================================================================
   // 3. YGGDRASIL SKILL TREE (INTERACTIVE SVG + DOM NODE GRAPH)
   // ==========================================================================
@@ -638,24 +867,53 @@ export class HubUi {
         const parentNode = nodeById.get(reqId);
         if (!parentNode) continue;
         const parentRank = state.skillRanks[parentNode.id] ?? 0;
-        const line = document.createElementNS(svgNS, 'line');
-        line.setAttribute('x1', String(parentNode.x * 100));
-        line.setAttribute('y1', String(parentNode.y * 100));
-        line.setAttribute('x2', String(node.x * 100));
-        line.setAttribute('y2', String(node.y * 100));
-        line.setAttribute(
-          'stroke',
-          nodeRank > 0
-            ? '#58f59a'
-            : parentRank > 0
-              ? '#39d6ff'
-              : '#2a3950',
-        );
-        line.setAttribute('stroke-width', nodeRank > 0 ? '0.65' : '0.45');
-        svg.appendChild(line);
+        const isOutcastCrownLink =
+          parentNode.outcastId === 'shared' && node.outcastId !== 'shared';
+
+        if (isOutcastCrownLink) {
+          // Graceful curved golden trunk line up the left rim to Outcast Exclusive crown
+          const path = document.createElementNS(svgNS, 'path');
+          const x1 = parentNode.x * 100;
+          const y1 = parentNode.y * 100;
+          const x2 = node.x * 100;
+          const y2 = node.y * 100;
+          path.setAttribute('d', `M ${x1} ${y1} C 3 76, 3 24, ${x2} ${y2}`);
+          path.setAttribute('fill', 'none');
+          path.setAttribute(
+            'stroke',
+            nodeRank > 0 ? '#ffd166' : parentRank > 0 ? '#ff9b35' : '#3a3345',
+          );
+          path.setAttribute('stroke-width', nodeRank > 0 ? '0.6' : '0.45');
+          path.setAttribute('stroke-dasharray', '1.4 1.2');
+          path.setAttribute('opacity', nodeRank > 0 ? '0.88' : '0.58');
+          svg.appendChild(path);
+        } else {
+          const line = document.createElementNS(svgNS, 'line');
+          line.setAttribute('x1', String(parentNode.x * 100));
+          line.setAttribute('y1', String(parentNode.y * 100));
+          line.setAttribute('x2', String(node.x * 100));
+          line.setAttribute('y2', String(node.y * 100));
+          line.setAttribute(
+            'stroke',
+            nodeRank > 0
+              ? node.outcastId !== 'shared'
+                ? '#ffd166'
+                : '#58f59a'
+              : parentRank > 0
+                ? '#39d6ff'
+                : '#2a3950',
+          );
+          line.setAttribute('stroke-width', nodeRank > 0 ? '0.65' : '0.45');
+          svg.appendChild(line);
+        }
       }
     }
     canvasWrap.appendChild(svg);
+
+    // Subtle horizontal separator hairline between Outcast Crown (row 5) and Shared Core (rows 1..4)
+    const crownDivider = document.createElement('div');
+    crownDivider.className = 'kf-skill-crown-divider';
+    canvasWrap.appendChild(crownDivider);
 
     // Clickable Node Buttons
     for (const node of nodes) {
@@ -671,13 +929,19 @@ export class HubUi {
 
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = `kf-skill-node ${stateClass}${this.selectedSkillNodeId === node.id ? ' selected' : ''}`;
+      const extraClasses = [
+        'kf-skill-node',
+        stateClass,
+        node.outcastId !== 'shared' ? 'outcast-exclusive' : '',
+        this.selectedSkillNodeId === node.id ? 'selected' : '',
+      ].filter(Boolean);
+      btn.className = extraClasses.join(' ');
       btn.style.left = `${node.x * 100}%`;
       btn.style.top = `${node.y * 100}%`;
       btn.dataset.testid = `skill-node-${node.id}`;
       btn.innerHTML = `
-        <span style="font-weight:800;line-height:1.15;">${node.name}</span>
-        <span>${rank}/${node.maxRank}${node.outcastId !== 'shared' ? ' ★' : ''}</span>
+        <span class="kf-skill-node-name">${node.name}</span>
+        <span class="kf-skill-node-rank">${rank}/${node.maxRank}${node.outcastId !== 'shared' ? ' ★' : ''}</span>
       `;
       btn.addEventListener('click', () => {
         this.cb.onPlayUiClick();
