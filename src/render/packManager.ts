@@ -639,6 +639,10 @@ export class PackManager {
     return this.resolveFromBuiltin('fx_white_1x1', 0);
   }
 
+  resolveBuiltinSprite(logicalKey: string, frameIndex = 0): ResolvedSprite {
+    return this.resolveFromBuiltin(logicalKey, frameIndex);
+  }
+
   private tryResolveFromCustom(
     logicalKey: string,
     frameIndex: number,

@@ -1543,20 +1543,18 @@ export class WebGL2Renderer {
           continue;
         }
         if (kind === TileKind.PitOrWater) {
-          const sp = this.packManager.resolveSprite('tile_water', (animFrame4 + hash4) % 4);
-          let u0 = sp.u0;
-          let u1 = sp.u1;
-          if (sp.width >= 32 && sp.height <= 24) {
-            const count = Math.max(1, Math.floor(sp.width / 16));
-            const idx = tileHash % count;
-            const du = sp.u1 - sp.u0;
-            u0 = sp.u0 + du * (idx / count);
-            u1 = sp.u0 + du * ((idx + 1) / count);
-          }
+          // Always render shimmering Built-In animated water/ice chasm with FX_MODE_WATER ripple
+          const sp = this.packManager.resolveBuiltinSprite('tile_water', (animFrame4 + hash4) % 4);
+          const isIceBiome = biomeId === 'jotunheim' || biomeId === 'ice_cave' || biomeId === 'saltpan';
           batch.drawQuad(
             sp.pageTexture, wx, wy, ts, ts,
-            u0, sp.v0, u1, sp.v1,
-            1, 1, 1, 1, 0, FX_MODE_WATER
+            sp.u0, sp.v0, sp.u1, sp.v1,
+            isIceBiome ? 0.72 : 0.90,
+            isIceBiome ? 0.96 : 0.95,
+            1.0,
+            1.0,
+            0,
+            FX_MODE_WATER
           );
           continue;
         }
@@ -1566,20 +1564,22 @@ export class WebGL2Renderer {
           const sp = this.packManager.resolveSpriteWithFallback(floorBiomeKey, 'tile_floor', hash4);
           let u0 = sp.u0;
           let u1 = sp.u1;
-          // Retail multi-tile horizontal strips (e.g. 128x16..464x16): slice ONE 16x16 sub-tile!
+          // Retail multi-tile horizontal strips (e.g. 128x16..464x16):
+          // Slot 0 in GMS2 floor tilesets is reserved as the bright editor/template square — ALWAYS skip slot 0!
           if (sp.width >= 32 && sp.height <= 24) {
             const count = Math.max(1, Math.floor(sp.width / 16));
-            const idx = tileHash % count;
+            const idx = count > 1 ? 1 + (tileHash % (count - 1)) : 0;
             const du = sp.u1 - sp.u0;
             u0 = sp.u0 + du * (idx / count);
             u1 = sp.u0 + du * ((idx + 1) / count);
           }
           if (sp.sourcePack === 'custom') {
-            // Pure bright (1,1,1,1) for Custom Pack retail floor tiles (never crush dark biomes!)
+            // Pure bright (1,1,1,1) for Custom Pack retail floor tiles, with gentle lift for darkcity asphalt
+            const lift = biomeId === 'darkcity' ? 1.55 : 1.05;
             batch.drawQuad(
               sp.pageTexture, wx, wy, ts, ts,
               u0, sp.v0, u1, sp.v1,
-              1, 1, 1, 1
+              lift, lift, biomeId === 'darkcity' ? 1.65 : 1.05, 1
             );
           } else {
             const col = (tx + ty) % 2 === 0 ? floorA : floorB;
@@ -1599,7 +1599,7 @@ export class WebGL2Renderer {
             if (rub.width >= 32 && rub.height <= 24) {
               const sliceW = rub.height >= 16 && rub.width % rub.height === 0 ? rub.height : 16;
               const count = Math.max(1, Math.floor(rub.width / sliceW));
-              const idx = tileHash % count;
+              const idx = count > 1 ? 1 + (tileHash % (count - 1)) : 0;
               const du = rub.u1 - rub.u0;
               ru0 = rub.u0 + du * (idx / count);
               ru1 = rub.u0 + du * ((idx + 1) / count);
@@ -1739,20 +1739,26 @@ export class WebGL2Renderer {
             kind === TileKind.WallBedrock && this.packManager.getMode() !== 'custom'
               ? this.packManager.resolveSprite('tile_bedrock', 0)
               : this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', 0);
-          // For Custom Pack multi-frame retail walls, skip partial f0 border sprite when >1 frame
+          // For Custom Pack multi-frame retail walls, pick textured roof/brick frames
+          // (in darkcity, frames 1/3/4/5 are 1-color flat interior fills while 0/2/6/7 are textured)
+          let wallFrameIdx = 0;
+          if (topProbe.sourcePack === 'custom' && topProbe.frameCount > 1) {
+            if (biomeId === 'darkcity') {
+              const texturedDarkcity = [0, 2, 6, 7];
+              wallFrameIdx = texturedDarkcity[tileHash % texturedDarkcity.length] % topProbe.frameCount;
+            } else {
+              wallFrameIdx = 1 + (tileHash % Math.min(6, topProbe.frameCount - 1));
+            }
+          }
           const topSp =
             topProbe.sourcePack === 'custom' && topProbe.frameCount > 1
-              ? this.packManager.resolveSpriteWithFallback(
-                  wallBiomeKey,
-                  'tile_wall',
-                  1 + (tileHash % Math.min(6, topProbe.frameCount - 1))
-                )
+              ? this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', wallFrameIdx)
               : topProbe;
 
           if (topSp.sourcePack === 'custom') {
-            const topR = kind === TileKind.WallBedrock ? 0.90 : 1.05;
-            const topG = kind === TileKind.WallBedrock ? 0.92 : 1.05;
-            const topB = kind === TileKind.WallBedrock ? 0.98 : 1.05;
+            const topR = kind === TileKind.WallBedrock ? 0.92 : 1.08;
+            const topG = kind === TileKind.WallBedrock ? 0.95 : 1.08;
+            const topB = kind === TileKind.WallBedrock ? 1.02 : 1.12;
             batch.drawQuad(
               topSp.pageTexture,
               wx,
@@ -1768,6 +1774,24 @@ export class WebGL2Renderer {
               topB,
               1
             );
+            // Crisp 1px top-rim bevel highlight along exposed south wall edge
+            if (!belowWall) {
+              batch.drawQuad(
+                white.pageTexture,
+                wx,
+                wy - wallDepth + ts - 1,
+                ts,
+                1,
+                white.u0,
+                white.v0,
+                white.u1,
+                white.v1,
+                0.72,
+                0.78,
+                0.90,
+                0.28
+              );
+            }
           } else {
             const tCol = kind === TileKind.WallBedrock ? ([0.95, 0.95, 1.05] as const) : wallTopCol;
             batch.drawQuad(
@@ -1831,6 +1855,70 @@ export class WebGL2Renderer {
             }
           }
         }
+      }
+    }
+
+    // 1C-bis. Visible Glowing Norse Rune Braziers in Boss Arenas (anchored to Pass 5 lights)
+    const hasBossActive = state.enemies.some((e) => e.isBoss) || state.activeBossId !== null;
+    if (hasBossActive && state.screenMode === 'combat') {
+      const arenaW = map.width * ts;
+      const arenaH = map.height * ts;
+      const insetX = ts * 4.5;
+      const insetY = ts * 4.5;
+      const acc = biome.accentGlow;
+      const braziers: readonly (readonly [number, number])[] = [
+        [insetX, insetY],
+        [arenaW - insetX, insetY],
+        [insetX, arenaH - insetY],
+        [arenaW - insetX, arenaH - insetY],
+        [insetX, arenaH * 0.5],
+        [arenaW - insetX, arenaH * 0.5],
+      ];
+      for (let b = 0; b < braziers.length; b++) {
+        const [bx, by] = braziers[b];
+        const flicker = 0.85 + Math.sin(timeSec * 11 + b * 2.1) * 0.15;
+        // Dark iron rune pedestal (10x8)
+        batch.drawQuad(
+          white.pageTexture,
+          Math.round(bx - 5),
+          Math.round(by - 3),
+          10,
+          7,
+          white.u0, white.v0, white.u1, white.v1,
+          0.12, 0.14, 0.20, 0.95
+        );
+        // Inner carved metallic bowl (8x4)
+        batch.drawQuad(
+          white.pageTexture,
+          Math.round(bx - 4),
+          Math.round(by - 4),
+          8,
+          4,
+          white.u0, white.v0, white.u1, white.v1,
+          0.32, 0.36, 0.46, 1.0
+        );
+        // Glowing flickering Norse flame core (6x5 + 2px hot core)
+        batch.drawQuad(
+          white.pageTexture,
+          Math.round(bx - 3),
+          Math.round(by - 7 - Math.round(flicker)),
+          6,
+          5,
+          white.u0, white.v0, white.u1, white.v1,
+          Math.min(1, acc[0] * 1.15),
+          Math.min(1, acc[1] * 1.15),
+          Math.min(1, acc[2] * 1.15),
+          0.95
+        );
+        batch.drawQuad(
+          white.pageTexture,
+          Math.round(bx - 1),
+          Math.round(by - 6),
+          2,
+          3,
+          white.u0, white.v0, white.u1, white.v1,
+          1.0, 0.96, 0.85, 1.0
+        );
       }
     }
 
@@ -2333,13 +2421,37 @@ export class WebGL2Renderer {
 
     // 4H. Always-Visible Crisp Pixel-Font Hub Station Labels + Proximity Prompts + Floating Damage
     if (state.screenMode === 'hub') {
+      const shortHubLabel = (id: string, fallback: string): string => {
+        switch (id) {
+          case 'loki':
+            return "LOKI'S HEAD";
+          case 'jotunn_matic':
+            return 'JOTUNN-MATIC';
+          case 'skill_tree':
+            return 'YGGDRASIL';
+          case 'bifrost':
+            return 'BIFROST';
+          case 'modifiers':
+            return 'MODIFIERS';
+          case 'weapondex':
+            return 'WEAPONDEX';
+          case 'enemydex':
+            return 'ENEMYDEX';
+          case 'training_dummy':
+            return 'DUMMY';
+          default:
+            return fallback;
+        }
+      };
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const item = state.hubInteractables[i];
         const dist = Math.hypot(state.player.x - item.x, state.player.y - item.y);
         const near = dist <= item.radius + 32;
-        const text = near ? `[E] ${item.label}` : item.label;
-        const scale = near ? 0.92 : 0.78;
-        const labelY = Math.round(item.y - (item.id === 'skill_tree' ? 48 : 42));
+        const baseName = shortHubLabel(item.id, item.label);
+        const text = near ? `[E] ${baseName}` : baseName;
+        // Strict integer scale = 1 so every 5x7 bitmap pixel column renders 100% crisp with zero dropped strokes!
+        const scale = 1;
+        const labelY = Math.round(item.y - (item.id === 'skill_tree' ? 46 : 40));
         const measured = measurePixelText(text, scale);
         const pillW = Math.round(measured.width + 6);
         const pillH = Math.round(measured.height + 3);
@@ -2358,12 +2470,12 @@ export class WebGL2Renderer {
           0.04,
           0.06,
           0.11,
-          near ? 0.84 : 0.62
+          near ? 0.88 : 0.72
         );
         if (near) {
           this.drawPixelText(batch, text, item.x, labelY, scale, 0.42, 0.98, 1.0, 1.0, true);
         } else {
-          this.drawPixelText(batch, text, item.x, labelY, scale, 0.94, 0.90, 0.74, 0.92, true);
+          this.drawPixelText(batch, text, item.x, labelY, scale, 0.94, 0.90, 0.74, 0.95, true);
         }
       }
     }
@@ -2891,9 +3003,11 @@ export class WebGL2Renderer {
   ): void {
     const fontTex = this.packManager.getFontTexture();
     if (!fontTex) return;
+    // Enforce crisp integer scale >= 1 on NEAREST bitmap text so pixel columns never drop
+    const intScale = Math.max(1, Math.round(scale));
     const atlas = getBuiltinFontAtlas();
     const upper = text.toUpperCase();
-    const measured = centered ? measurePixelText(upper, scale) : { width: 0, height: 0 };
+    const measured = centered ? measurePixelText(upper, intScale) : { width: 0, height: 0 };
     let cursorX = Math.round(centered ? cx - measured.width * 0.5 : cx);
     const drawY = Math.round(y);
 
@@ -2905,8 +3019,8 @@ export class WebGL2Renderer {
           fontTex,
           cursorX,
           drawY,
-          glp.w * scale,
-          glp.h * scale,
+          glp.w * intScale,
+          glp.h * intScale,
           glp.u0,
           glp.v0,
           glp.u1,
@@ -2917,7 +3031,7 @@ export class WebGL2Renderer {
           a
         );
       }
-      cursorX += glp.advance * scale;
+      cursorX += glp.advance * intScale;
     }
   }
 
