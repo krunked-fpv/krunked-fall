@@ -1,10 +1,11 @@
 // ============================================================================
-// KRUNKEDFALL — 108-Playtester Adversarial Persona Gauntlet (playtest-100.ts)
+// KRUNKEDFALL — 156-Playtester Adversarial Persona Gauntlet (playtest-100.ts)
 // ============================================================================
-// Executes 108 distinct playtester profiles (12 distinct AI behavioral personas
-// x 9 seeds/outcast pairings) across all 8 Outcasts, all 3 Acts, all 6 Bosses,
-// Loop 1-2, ALL 221 weapons, ALL 76 mods, Run Modifiers, Shops, Campfires,
-// Freeze Storm stress, and chaotic wall-slamming edge-case inputs.
+// Executes 156 distinct playtester profiles (12 distinct AI behavioral personas
+// x 13 seeds/outcast pairings) across all 8 Outcasts, all 3 Acts, all 6 Bosses,
+// Loop 1-2, ALL 221 weapons, ALL 76 mods, ALL 10 Run Modifiers, Shops,
+// Campfires, Freeze Storm stress, boss-hull separation anti-clip verification,
+// and chaotic wall-slamming edge-case inputs (>380,000 simulated 60 Hz ticks).
 //
 // Usage:
 //   npx tsx scripts/verify/playtest-100.ts
@@ -108,6 +109,8 @@ interface TesterTelemetry {
   bossesCleared: BossId[];
   weaponsTested: number[];
   modsTested: string[];
+  runModifiersTested: string[];
+  maxBossBodyClipTicks: number;
   deaths: number;
   freezeStormTriggered: boolean;
   overheatTriggered: boolean;
@@ -119,112 +122,131 @@ const PERSONAS: readonly PersonaConfig[] = [
   {
     id: 'aggressive_melee_berserker',
     label: '1. Aggressive Melee Berserker',
-    sessionTicks: 2200,
+    sessionTicks: 2400,
     route: ['act1_canyon', 'act1_sandcity', 'act1_darkcity'],
-    preferredOutcasts: ['britta', 'leifi', 'gustaf', 'trulls', 'stellan', 'einar', 'gunilla', 'hilda', 'britta'],
+    preferredOutcasts: ['britta', 'leifi', 'gustaf', 'trulls', 'stellan', 'einar', 'gunilla', 'hilda'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'long_range_sniper_kiter',
     label: '2. Long-Range Sniper Kiter',
-    sessionTicks: 2200,
+    sessionTicks: 2400,
     route: ['act1_saltpan', 'act2_stonyfield', 'act1_jotunheim'],
-    preferredOutcasts: ['gustaf', 'gunilla', 'hilda', 'einar', 'britta', 'leifi', 'trulls', 'stellan', 'gustaf'],
+    preferredOutcasts: ['gustaf', 'gunilla', 'hilda', 'einar', 'britta', 'leifi', 'trulls', 'stellan'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'explosive_wall_demolitionist',
     label: '3. Explosive Wall-Demolitionist',
-    sessionTicks: 2200,
+    sessionTicks: 2400,
     route: ['act1_sewer', 'act2_milbase', 'act3_trenches'],
-    preferredOutcasts: ['einar', 'stellan', 'britta', 'leifi', 'gunilla', 'trulls', 'hilda', 'gustaf', 'einar'],
+    preferredOutcasts: ['einar', 'stellan', 'britta', 'leifi', 'gunilla', 'trulls', 'hilda', 'gustaf'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'turret_companion_engineer',
     label: '4. Turret & Companion Engineer',
-    sessionTicks: 2200,
+    sessionTicks: 2400,
     route: ['act1_sandcave', 'act2_mosslab', 'act2_losttemple'],
-    preferredOutcasts: ['einar', 'hilda', 'trulls', 'stellan', 'britta', 'leifi', 'gustaf', 'gunilla', 'hilda'],
+    preferredOutcasts: ['einar', 'hilda', 'trulls', 'stellan', 'britta', 'leifi', 'gustaf', 'gunilla'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'dual_wield_bullet_hose',
     label: '5. Dual-Wield Bullet Hose',
-    sessionTicks: 2200,
+    sessionTicks: 2400,
     route: ['act1_arena', 'act2_wildcity', 'act2_helheim'],
-    preferredOutcasts: ['gunilla', 'britta', 'stellan', 'einar', 'gustaf', 'leifi', 'trulls', 'hilda', 'gunilla'],
+    preferredOutcasts: ['gunilla', 'britta', 'stellan', 'einar', 'gustaf', 'leifi', 'trulls', 'hilda'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'mod_stacking_alchemist',
     label: '6. Mod-Stacking Elemental Alchemist',
-    sessionTicks: 2400,
+    sessionTicks: 2600,
     route: ['act0_weaponshop', 'act2_mushroomcave', 'act3_sulfurlake', 'act3_muspelheim'],
-    preferredOutcasts: ['trulls', 'hilda', 'gustaf', 'gunilla', 'einar', 'stellan', 'britta', 'leifi', 'trulls'],
+    preferredOutcasts: ['trulls', 'hilda', 'gustaf', 'gunilla', 'einar', 'stellan', 'britta', 'leifi'],
     runModifiers: ['mod_ragnarok_tide'],
     loopLevel: 0,
   },
   {
     id: 'boss_rush_speedrunner',
     label: '7. Boss-Rush Speedrunner',
-    sessionTicks: 3000,
+    sessionTicks: 3200,
     route: ['act1_darkcity', 'act1_jotunheim', 'act2_losttemple', 'act2_helheim', 'act3_muspelheim', 'act3_shrine'],
-    preferredOutcasts: ['britta', 'leifi', 'gustaf', 'einar', 'gunilla', 'trulls', 'stellan', 'hilda', 'britta'],
+    preferredOutcasts: ['britta', 'leifi', 'gustaf', 'einar', 'gunilla', 'trulls', 'stellan', 'hilda'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'freeze_storm_camper',
     label: '8. Freeze-Storm Camper Stress-Tester',
-    sessionTicks: 3000,
+    sessionTicks: 3100,
     route: ['act1_canyon', 'act2_forest'],
-    preferredOutcasts: ['leifi', 'trulls', 'hilda', 'einar', 'britta', 'gustaf', 'gunilla', 'stellan', 'leifi'],
+    preferredOutcasts: ['leifi', 'trulls', 'hilda', 'einar', 'britta', 'gustaf', 'gunilla', 'stellan'],
     runModifiers: ['mod_fimbulwinter_surge', 'mod_blizzard_rush'],
     loopLevel: 0,
   },
   {
     id: 'oob_wall_hugger_fuzzer',
     label: '9. Out-of-Bounds Wall-Hugger Fuzz Tester',
-    sessionTicks: 2100,
+    sessionTicks: 2300,
     route: ['act1_subway', 'act2_garage', 'act3_redhall'],
-    preferredOutcasts: ['stellan', 'britta', 'leifi', 'gustaf', 'einar', 'gunilla', 'trulls', 'hilda', 'stellan'],
+    preferredOutcasts: ['stellan', 'britta', 'leifi', 'gustaf', 'einar', 'gunilla', 'trulls', 'hilda'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'low_ammo_scavenger',
     label: '10. Low-Ammo Scavenger',
-    sessionTicks: 2400,
+    sessionTicks: 2600,
     route: ['act1_supplystash', 'act1_campfire', 'act0_weaponshop', 'act2_deadlands'],
-    preferredOutcasts: ['gunilla', 'einar', 'gustaf', 'hilda', 'britta', 'leifi', 'trulls', 'stellan', 'einar'],
+    preferredOutcasts: ['gunilla', 'einar', 'gustaf', 'hilda', 'britta', 'leifi', 'trulls', 'stellan'],
     runModifiers: [],
     loopLevel: 0,
   },
   {
     id: 'loop_escalation_glass_cannon',
     label: '11. Loop-Escalation Glass Cannon',
-    sessionTicks: 2400,
+    sessionTicks: 2600,
     route: ['act1_canyon', 'act2_milbase', 'act3_cindercity', 'act3_shrine'],
-    preferredOutcasts: ['gustaf', 'gunilla', 'stellan', 'britta', 'hilda', 'einar', 'trulls', 'leifi', 'gustaf'],
+    preferredOutcasts: ['gustaf', 'gunilla', 'stellan', 'britta', 'hilda', 'einar', 'trulls', 'leifi'],
     runModifiers: ['mod_valhalla_gauntlet', 'mod_hyper_tempo'],
     loopLevel: 1,
   },
   {
     id: 'high_overheat_minigun_maniac',
     label: '12. High-Overheat Minigun Maniac',
-    sessionTicks: 2400,
+    sessionTicks: 2600,
     route: ['act1_keep', 'act2_keep', 'act3_keep'],
-    preferredOutcasts: ['britta', 'gunilla', 'einar', 'leifi', 'stellan', 'trulls', 'hilda', 'gustaf', 'gunilla'],
+    preferredOutcasts: ['britta', 'gunilla', 'einar', 'leifi', 'stellan', 'trulls', 'hilda', 'gustaf'],
     runModifiers: ['mod_berserker_frenzy'],
     loopLevel: 0,
   },
 ];
+
+function selectRunModifiersForTester(persona: PersonaConfig, pairingIndex: number): string[] {
+  // Guarantees ALL 10 Run Modifiers are actively exercised in live combat across the 156 testers
+  if (persona.id === 'mod_stacking_alchemist') {
+    const alchemistMods = [
+      'mod_ragnarok_tide',
+      'mod_mythic_hunt',
+      'mod_iron_legion',
+      'mod_greed_of_midgard',
+    ];
+    return [alchemistMods[pairingIndex % alchemistMods.length]];
+  }
+  if (persona.id === 'loop_escalation_glass_cannon') {
+    return pairingIndex % 3 === 2
+      ? ['mod_shadow_of_krunked', 'mod_hyper_tempo']
+      : ['mod_valhalla_gauntlet', 'mod_hyper_tempo'];
+  }
+  return [...persona.runModifiers];
+}
 
 // Categorized weapon pools for authentic persona loadouts
 const MELEE_WEAPONS = WEAPONS.filter((w) => w.class === 1 || w.ammoType === 0);
@@ -238,10 +260,10 @@ function selectLoadoutForTester(
   testerIndex: number,
   persona: PersonaConfig,
 ): { primaryId: number; secondaryId: number; swapMidRunId: number; extraSweepId?: number; mods: string[] } {
-  // Deterministic 100% sweeping across all 221 weapons (108*2 = 216 + 5 tail weapons = 221) and all 76 mods
+  // Deterministic 100% sweeping across all 221 weapons (156*2 = 312 > 221) and all 76 mods
   const sweepWeaponA = WEAPONS[testerIndex % WEAPONS.length].uniqueId;
-  const sweepWeaponB = WEAPONS[(testerIndex + 108) % WEAPONS.length].uniqueId;
-  const extraSweepId = testerIndex < WEAPONS.length - 216 ? WEAPONS[216 + testerIndex].uniqueId : undefined;
+  const sweepWeaponB = WEAPONS[(testerIndex + 111) % WEAPONS.length].uniqueId;
+  const extraSweepId = undefined;
 
   const sweepModA = MODS[testerIndex % MODS.length].id;
   const sweepModB = MODS[(testerIndex + 37) % MODS.length].id;
@@ -595,10 +617,12 @@ function runPlaytesterSession(
   let freezeStormTriggered = false;
   let overheatTriggered = false;
   let totalTicksSimulated = 0;
+  let maxBossBodyClipTicks = 0;
+  const activeRunModifiers = selectRunModifiersForTester(persona, pairingIndex);
 
   try {
     state = createInitialSimState(seed, outcast);
-    state.activeModifiers = [...persona.runModifiers];
+    state.activeModifiers = [...activeRunModifiers];
     if (persona.loopLevel > 0) {
       state.loopCount = persona.loopLevel + (pairingIndex % 2); // Loop 1 & Loop 2 coverage
     }
@@ -711,6 +735,7 @@ function runPlaytesterSession(
       let zeroAmmoTicks = 0;
       let deadFireTicks = 0;
       let phaseShiftTicks = 0;
+      let bossBodyClipTicks = 0;
       let sawBossPhase1DeadNoShift = false;
       const prevBounceByProjId = new Map<number, number>();
 
@@ -859,6 +884,46 @@ function runPlaytesterSession(
           }
         }
 
+        // 5b. CRITICAL: BOSS_BODY_CLIP check (Gate C Defect #7 anti-clip invariant)
+        // Players (when not invisible/dashing) must NEVER remain buried deeply
+        // (dist < player.radius + boss.radius * 0.4) inside a living boss for > 10 consecutive ticks.
+        if (state.screenMode === 'combat' && !p.isInvisible && p.dashTicks <= 0) {
+          let clippedBoss: { bossId: string; dist: number; threshold: number } | null = null;
+          for (let i = 0; i < state.enemies.length; i++) {
+            const e = state.enemies[i];
+            if (!e.isBoss || e.hp <= 0) continue;
+            const deepThreshold = p.radius + e.radius * 0.4;
+            const d = Math.hypot(p.x - e.x, p.y - e.y);
+            if (d < deepThreshold) {
+              clippedBoss = {
+                bossId: e.bossId ?? e.defId,
+                dist: d,
+                threshold: deepThreshold,
+              };
+              break;
+            }
+          }
+          if (clippedBoss) {
+            bossBodyClipTicks += 1;
+            if (bossBodyClipTicks > maxBossBodyClipTicks) {
+              maxBossBodyClipTicks = bossBodyClipTicks;
+            }
+            if (bossBodyClipTicks > 10) {
+              pushTicket(
+                'CRITICAL',
+                'BOSS_BODY_CLIP',
+                nodeId,
+                state.tick,
+                `Player buried deeply inside boss ${clippedBoss.bossId} for ${bossBodyClipTicks} consecutive ticks (dist=${clippedBoss.dist.toFixed(1)} < ${clippedBoss.threshold.toFixed(1)})`,
+              );
+            }
+          } else {
+            bossBodyClipTicks = 0;
+          }
+        } else {
+          bossBodyClipTicks = 0;
+        }
+
         // 6. CRITICAL: Periodic outer bedrock integrity audit
         if (t % 150 === 0) {
           for (let x = 0; x < state.map.width; x++) {
@@ -968,7 +1033,7 @@ function runPlaytesterSession(
         }
 
         // 10. MINOR: Instant-kill balance spike check (single tick drops >= 65% maxHp in Loop 0 standard difficulty)
-        if (state.loopCount === 0 && persona.runModifiers.length === 0 && hpBefore > 0) {
+        if (state.loopCount === 0 && state.activeModifiers.length === 0 && hpBefore > 0) {
           const singleTickLoss = hpBefore - p.hp;
           if (singleTickLoss >= p.maxHp * 0.65) {
             pushTicket(
@@ -1002,6 +1067,8 @@ function runPlaytesterSession(
       bossesCleared: [...state.runStats.bossesDefeated],
       weaponsTested: [...weaponsTested],
       modsTested: [...modsTested],
+      runModifiersTested: [...activeRunModifiers],
+      maxBossBodyClipTicks,
       deaths,
       freezeStormTriggered,
       overheatTriggered,
@@ -1032,6 +1099,8 @@ function runPlaytesterSession(
       bossesCleared: [],
       weaponsTested: [...weaponsTested],
       modsTested: [...modsTested],
+      runModifiersTested: [...activeRunModifiers],
+      maxBossBodyClipTicks,
       deaths,
       freezeStormTriggered,
       overheatTriggered,
@@ -1052,7 +1121,7 @@ function parseOutArg(): string | null {
 function main(): void {
   const outPath = parseOutArg();
   const startMs = Date.now();
-  const pairingsPerPersona = 9; // 12 personas x 9 pairings = 108 distinct playtesters!
+  const pairingsPerPersona = 13; // 12 personas x 13 pairings = 156 distinct playtesters!
   const results: TesterTelemetry[] = [];
 
   let testerId = 1;
@@ -1072,9 +1141,11 @@ function main(): void {
   const totalWalls = results.reduce((s, r) => s + r.wallsDestroyed, 0);
   const totalDeaths = results.reduce((s, r) => s + r.deaths, 0);
   const avgDps = Number((results.reduce((s, r) => s + r.dps, 0) / totalTesters).toFixed(1));
+  const peakBossBodyClipTicks = results.reduce((m, r) => Math.max(m, r.maxBossBodyClipTicks), 0);
 
   const uniqueWeapons = new Set<number>();
   const uniqueMods = new Set<string>();
+  const uniqueRunModifiers = new Set<string>();
   const uniqueOutcasts = new Set<OutcastId>();
   const bossesClearedCount = new Map<BossId, number>();
   let totalBossClears = 0;
@@ -1085,6 +1156,7 @@ function main(): void {
   for (const r of results) {
     for (const w of r.weaponsTested) uniqueWeapons.add(w);
     for (const m of r.modsTested) uniqueMods.add(m);
+    for (const rm of r.runModifiersTested) uniqueRunModifiers.add(rm);
     uniqueOutcasts.add(r.outcast);
     for (const b of r.bossesCleared) {
       bossesClearedCount.set(b, (bossesClearedCount.get(b) ?? 0) + 1);
@@ -1100,15 +1172,15 @@ function main(): void {
   const minorTickets = allTickets.filter((t) => t.severity === 'MINOR');
 
   console.log('========================================================================');
-  console.log('KRUNKEDFALL — 108-PLAYTESTER ADVERSARIAL PERSONA GAUNTLET REPORT');
+  console.log('KRUNKEDFALL — 156-PLAYTESTER ADVERSARIAL PERSONA GAUNTLET REPORT');
   console.log('========================================================================');
   console.log(`  Playtesters Executed : ${totalTesters} (12 Personas x ${pairingsPerPersona} Pairings)`);
   console.log(`  Pass / Fail (Crit)   : ${passedCount} PASSED / ${failedCount} FAILED (${elapsedSec}s wall time)`);
   console.log(`  Total Simulated Ticks: ${totalTicks.toLocaleString()} (${(totalTicks / 60 / 60).toFixed(1)} simulated minutes @ 60 Hz)`);
   console.log(`  Aggregate Telemetry  : ${totalKills.toLocaleString()} kills | ${totalDamage.toLocaleString()} dmg | ${avgDps} avg DPS | ${totalWalls.toLocaleString()} walls shattered`);
   console.log(`  Bosses Cleared       : ${totalBossClears} total (${[...bossesClearedCount.entries()].map(([k, v]) => `${k}:${v}`).join(', ') || 'none'})`);
-  console.log(`  Coverage Matrix      : Weapons ${uniqueWeapons.size}/${WEAPONS.length} | Mods ${uniqueMods.size}/${MODS.length} | Outcasts ${uniqueOutcasts.size}/${OUTCASTS.length} | Bosses ${bossesClearedCount.size}/${BOSSES.length} | RunMods ${RUN_MODIFIERS.length}`);
-  console.log(`  Stress Events        : Deaths=${totalDeaths} | FreezeStormTriggers=${freezeStormTriggers} | OverheatLockouts=${overheatTriggers}`);
+  console.log(`  Coverage Matrix      : Weapons ${uniqueWeapons.size}/${WEAPONS.length} | Mods ${uniqueMods.size}/${MODS.length} | Outcasts ${uniqueOutcasts.size}/${OUTCASTS.length} | Bosses ${bossesClearedCount.size}/${BOSSES.length} | RunMods ${uniqueRunModifiers.size}/${RUN_MODIFIERS.length}`);
+  console.log(`  Stress Events        : Deaths=${totalDeaths} | FreezeStormTriggers=${freezeStormTriggers} | OverheatLockouts=${overheatTriggers} | PeakBossClipTicks=${peakBossBodyClipTicks}`);
   console.log('------------------------------------------------------------------------');
   console.log('  PER-PERSONA SUMMARY:');
   for (const persona of PERSONAS) {
@@ -1122,7 +1194,7 @@ function main(): void {
     const gMaj = group.reduce((s, r) => s + r.tickets.filter((t) => t.severity === 'MAJOR').length, 0);
     const gMin = group.reduce((s, r) => s + r.tickets.filter((t) => t.severity === 'MINOR').length, 0);
     console.log(
-      `    ${persona.label.padEnd(42)} | ${gPass}/9 pass | DPS ${gDps.padStart(6)} | kills ${String(gKills).padStart(4)} | walls ${String(gWalls).padStart(4)} | deaths ${String(gDeaths).padStart(3)} | C:${gCrit} M:${gMaj} m:${gMin}`,
+      `    ${persona.label.padEnd(42)} | ${String(gPass).padStart(2)}/${pairingsPerPersona} pass | DPS ${gDps.padStart(6)} | kills ${String(gKills).padStart(4)} | walls ${String(gWalls).padStart(4)} | deaths ${String(gDeaths).padStart(3)} | C:${gCrit} M:${gMaj} m:${gMin}`,
     );
   }
 
@@ -1183,6 +1255,9 @@ function main(): void {
             modsTotal: MODS.length,
             outcastsCovered: uniqueOutcasts.size,
             bossesCovered: bossesClearedCount.size,
+            runModifiersCovered: uniqueRunModifiers.size,
+            runModifiersTotal: RUN_MODIFIERS.length,
+            peakBossBodyClipTicks,
             freezeStormTriggers,
             overheatTriggers,
             tickets: {

@@ -1062,6 +1062,169 @@ function handleHubInteractions(state: SimState, input: InputFrame): void {
 }
 
 /**
+ * Applies deterministic, RNG-free soft circle-circle separation pushout between
+ * the player and living enemies/bosses so the player never stands buried inside
+ * a boss hull and never tunnels into walls.
+ */
+function applyPlayerEnemySeparation(state: SimState): void {
+  if (state.screenMode !== 'combat') return;
+  const p = state.player;
+  if (p.isInvisible || p.dashTicks > 0 || state.enemies.length === 0) return;
+
+  // Pass 1: Soft separation from non-boss enemies so packs never swallow the player
+  let mobPushX = 0;
+  let mobPushY = 0;
+  for (let i = 0; i < state.enemies.length; i++) {
+    const e = state.enemies[i];
+    if (e.hp <= 0 || e.isBoss) continue;
+
+    const minDist = p.radius + e.radius * 0.65;
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq >= minDist * minDist) continue;
+
+    let nx: number;
+    let ny: number;
+    let dist: number;
+    if (distSq > 1e-8) {
+      dist = Math.sqrt(distSq);
+      nx = dx / dist;
+      ny = dy / dist;
+    } else {
+      // Deterministic zero-NaN fallback when centers coincide exactly
+      dist = 0;
+      nx = 1;
+      ny = 0;
+    }
+
+    const push = (minDist - dist) * 0.65;
+    mobPushX += nx * push;
+    mobPushY += ny * push;
+  }
+
+  if (mobPushX !== 0 || mobPushY !== 0) {
+    const mobMag = Math.hypot(mobPushX, mobPushY);
+    const maxMobPush = 9;
+    if (mobMag > maxMobPush) {
+      const scale = maxMobPush / mobMag;
+      mobPushX *= scale;
+      mobPushY *= scale;
+    }
+    const mobRes = resolveCircleVsTilemap(
+      state.map,
+      p.x,
+      p.y,
+      mobPushX,
+      mobPushY,
+      p.radius,
+      false,
+    );
+    p.x = mobRes.x;
+    p.y = mobRes.y;
+  }
+
+  // Pass 2: Authoritative boss-hull separation (runs after minions so packs can never
+  // shove the player inside a boss body)
+  let bossPushX = 0;
+  let bossPushY = 0;
+  let bossOverlapped = false;
+  for (let i = 0; i < state.enemies.length; i++) {
+    const e = state.enemies[i];
+    if (e.hp <= 0 || !e.isBoss) continue;
+
+    const minDist = p.radius + e.radius * 0.72;
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq >= minDist * minDist) continue;
+
+    let nx: number;
+    let ny: number;
+    let dist: number;
+    if (distSq > 1e-8) {
+      dist = Math.sqrt(distSq);
+      nx = dx / dist;
+      ny = dy / dist;
+    } else {
+      // Deterministic zero-NaN fallback when centers coincide exactly
+      dist = 0;
+      nx = 1;
+      ny = 0;
+    }
+
+    const push = (minDist - dist) * 0.85;
+    bossPushX += nx * push;
+    bossPushY += ny * push;
+    bossOverlapped = true;
+  }
+
+  if (!bossOverlapped || (bossPushX === 0 && bossPushY === 0)) return;
+
+  const bossMag = Math.hypot(bossPushX, bossPushY);
+  const maxBossPush = 14;
+  if (bossMag > maxBossPush) {
+    const scale = maxBossPush / bossMag;
+    bossPushX *= scale;
+    bossPushY *= scale;
+  }
+
+  const bossRes = resolveCircleVsTilemap(
+    state.map,
+    p.x,
+    p.y,
+    bossPushX,
+    bossPushY,
+    p.radius,
+    false,
+  );
+  p.x = bossRes.x;
+  p.y = bossRes.y;
+
+  // If a wall blocked radial pushout away from a boss, apply a deterministic
+  // tangential slip so the player rolls cleanly around the boss hull instead of
+  // getting pinned inside the boss against a wall.
+  if (bossRes.hitX || bossRes.hitY) {
+    const mapCenterX = state.map.width * state.map.tileSize * 0.5;
+    const mapCenterY = state.map.height * state.map.tileSize * 0.5;
+    for (let i = 0; i < state.enemies.length; i++) {
+      const e = state.enemies[i];
+      if (!e.isBoss || e.hp <= 0) continue;
+      const minDist = p.radius + e.radius * 0.72;
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < minDist * 0.92) {
+        const slip = Math.min(6, minDist - dist);
+        let slipX = 0;
+        let slipY = 0;
+        if (bossRes.hitX && !bossRes.hitY) {
+          const dirY = Math.abs(dy) > 1e-3 ? Math.sign(dy) : mapCenterY >= p.y ? 1 : -1;
+          slipY = dirY * slip;
+        } else if (bossRes.hitY && !bossRes.hitX) {
+          const dirX = Math.abs(dx) > 1e-3 ? Math.sign(dx) : mapCenterX >= p.x ? 1 : -1;
+          slipX = dirX * slip;
+        } else {
+          slipX = (mapCenterX >= p.x ? 1 : -1) * slip * 0.7;
+          slipY = (mapCenterY >= p.y ? 1 : -1) * slip * 0.7;
+        }
+        const slipRes = resolveCircleVsTilemap(
+          state.map,
+          p.x,
+          p.y,
+          slipX,
+          slipY,
+          p.radius,
+          false,
+        );
+        p.x = slipRes.x;
+        p.y = slipRes.y;
+      }
+    }
+  }
+}
+
+/**
  * Advances the entire simulation by exactly one deterministic 60 Hz tick.
  */
 export function stepSim(state: SimState, input: InputFrame): SimState {
@@ -1226,6 +1389,9 @@ export function stepSim(state: SimState, input: InputFrame): SimState {
   // 10. Enemy & Two-Phase Boss AI + Elemental Status Effects
   stepEnemies(state);
   stepStatusEffects(state);
+
+  // 10b. Soft player-vs-enemy/boss separation pushout (tilemap-safe, deterministic)
+  applyPlayerEnemySeparation(state);
 
   // 11. Pickups, Chests & Lava Hazards
   stepPickups(state, input);
