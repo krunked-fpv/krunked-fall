@@ -161,6 +161,143 @@ export class PixelSurface {
     }
   }
 
+  /**
+   * Draws a thick crisp pixel-art line with rounded pixel caps.
+   */
+  drawThickLine(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    radius: number,
+    c: RGBA,
+    blend = false
+  ): void {
+    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 1.5));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x0 + (x1 - x0) * t;
+      const py = y0 + (y1 - y0) * t;
+      if (radius <= 0.6) {
+        this.setPx(Math.round(px), Math.round(py), c, blend);
+      } else {
+        this.fillEllipse(px, py, radius, radius, c, blend);
+      }
+    }
+  }
+
+  /**
+   * Scanline-fills a crisp pixel-art polygon (for organic silhouettes, wings, capes, horns).
+   */
+  fillPolygon(points: readonly (readonly [number, number])[], c: RGBA, blend = false): void {
+    if (points.length < 3) return;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < points.length; i++) {
+      if (points[i][1] < minY) minY = points[i][1];
+      if (points[i][1] > maxY) maxY = points[i][1];
+    }
+    const yStart = Math.max(0, Math.floor(minY));
+    const yEnd = Math.min(this.height - 1, Math.ceil(maxY));
+    const xs: number[] = [];
+    for (let y = yStart; y <= yEnd; y++) {
+      xs.length = 0;
+      const sy = y + 0.5;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const y0 = points[j][1];
+        const y1 = points[i][1];
+        if ((y0 <= sy && y1 > sy) || (y1 <= sy && y0 > sy)) {
+          const x0 = points[j][0];
+          const x1 = points[i][0];
+          xs.push(x0 + ((sy - y0) * (x1 - x0)) / (y1 - y0));
+        }
+      }
+      xs.sort((a, b) => a - b);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const x0 = Math.max(0, Math.floor(xs[k]));
+        const x1 = Math.min(this.width - 1, Math.floor(xs[k + 1]));
+        for (let x = x0; x <= x1; x++) {
+          this.setPx(x, y, c, blend);
+        }
+      }
+    }
+  }
+
+  /**
+   * Cel-shaded pixel-art polygon with automatic top-left highlight & bottom-right shadow bevels.
+   */
+  drawShadedPolygon(
+    points: readonly (readonly [number, number])[],
+    base: RGBA,
+    seed = 17
+  ): void {
+    if (points.length < 3) return;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < points.length; i++) {
+      if (points[i][0] < minX) minX = points[i][0];
+      if (points[i][0] > maxX) maxX = points[i][0];
+      if (points[i][1] < minY) minY = points[i][1];
+      if (points[i][1] > maxY) maxY = points[i][1];
+    }
+    const xStart = Math.max(0, Math.floor(minX));
+    const xEnd = Math.min(this.width - 1, Math.ceil(maxX));
+    const yStart = Math.max(0, Math.floor(minY));
+    const yEnd = Math.min(this.height - 1, Math.ceil(maxY));
+    const spanX = Math.max(1, maxX - minX);
+    const spanY = Math.max(1, maxY - minY);
+
+    const hi = shadeColor(base, 1.32);
+    const lo = shadeColor(base, 0.72);
+    const deep = shadeColor(base, 0.5);
+
+    const xs: number[] = [];
+    for (let y = yStart; y <= yEnd; y++) {
+      xs.length = 0;
+      const sy = y + 0.5;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const y0 = points[j][1];
+        const y1 = points[i][1];
+        if ((y0 <= sy && y1 > sy) || (y1 <= sy && y0 > sy)) {
+          const x0 = points[j][0];
+          const x1 = points[i][0];
+          xs.push(x0 + ((sy - y0) * (x1 - x0)) / (y1 - y0));
+        }
+      }
+      xs.sort((a, b) => a - b);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const lx0 = Math.max(xStart, Math.floor(xs[k]));
+        const lx1 = Math.min(xEnd, Math.floor(xs[k + 1]));
+        for (let x = lx0; x <= lx1; x++) {
+          const nx = (x - minX) / spanX;
+          const ny = (y - minY) / spanY;
+          const dither = (pixelHash(x, y, seed) - 0.5) * 0.14;
+          const shade = (1 - ny) * 0.65 + (1 - nx) * 0.35 + dither;
+          let col = base;
+          if (y === yStart || x === lx0) col = hi;
+          else if (y === yEnd || x === lx1) col = deep;
+          else if (shade > 0.72) col = hi;
+          else if (shade < 0.24) col = deep;
+          else if (shade < 0.44) col = lo;
+          this.setPx(x, y, col);
+        }
+      }
+    }
+  }
+
+  /**
+   * Draws a crisp layered pixel-art glowing orb (eyes, reactor cores, runes).
+   */
+  drawGlowOrb(cx: number, cy: number, radius: number, core: RGBA, mid: RGBA, halo?: RGBA): void {
+    if (halo) {
+      this.fillEllipse(cx, cy, radius + 1.5, radius + 1.5, halo, true);
+    }
+    this.fillEllipse(cx, cy, radius, radius, mid, mid[3] < 255);
+    this.fillEllipse(cx, cy, Math.max(1, radius * 0.5), Math.max(1, radius * 0.5), core, false);
+  }
+
   fillEllipse(cx: number, cy: number, rx: number, ry: number, c: RGBA, blend = false): void {
     if (rx <= 0 || ry <= 0) return;
     const minX = Math.max(0, Math.floor(cx - rx - 1));

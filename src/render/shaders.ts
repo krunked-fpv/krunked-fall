@@ -256,9 +256,9 @@ void main() {
   vec4 light = texture(uLightTex, vUV);
 
   // Preserve crisp readability in shadowed corners while letting neon lights pop
-  vec3 baseLight = clamp(light.rgb, vec3(0.24), vec3(1.95));
+  vec3 baseLight = clamp(light.rgb, vec3(0.42), vec3(2.05));
   vec3 overbright = max(light.rgb - vec3(1.0), vec3(0.0));
-  vec3 lit = scene.rgb * baseLight + overbright * (0.32 + 0.55 * scene.rgb);
+  vec3 lit = scene.rgb * baseLight + overbright * (0.36 + 0.58 * scene.rgb);
 
   // Slight crisp contrast pop for neon-lit Norse pixel art
   lit = clamp(lit, vec3(0.0), vec3(1.0));
@@ -311,13 +311,18 @@ void main() {
   vec3 col = mix(skyBot, skyMid, smoothstep(0.08, 0.52, uv.y));
   col = mix(col, skyTop, smoothstep(0.52, 0.96, uv.y));
 
+  // Gently attenuate bright white stars behind top title-banner band (uv.y 0.74..0.94)
+  // while keeping the emerald/cyan/violet Aurora ribbons flowing vividly
+  float titleBannerBand = smoothstep(0.71, 0.76, uv.y) * (1.0 - smoothstep(0.92, 0.96, uv.y));
+  float starBannerAtten = 1.0 - 0.82 * titleBannerBand;
+
   // Crisp 1px twinkling stars
   vec2 starCell = floor(px * 0.5);
   float starRnd = hash21(starCell);
   if (starRnd > 0.992 && uv.y > 0.28) {
     float tw = 0.55 + 0.45 * sin(uTime * 3.5 + starRnd * 120.0);
     vec3 starTint = mix(vec3(0.75, 0.92, 1.0), vec3(1.0, 0.85, 0.72), fract(starRnd * 73.1));
-    col += starTint * tw * smoothstep(0.28, 0.65, uv.y);
+    col += starTint * tw * smoothstep(0.28, 0.65, uv.y) * starBannerAtten;
   }
 
   // Flowing multi-curtain Norse Aurora Borealis (emerald -> cyan -> runic violet)
@@ -373,7 +378,7 @@ void main() {
     }
   }
 
-  // Drifting pixel snow motes across title backdrop
+  // Drifting pixel snow motes across title backdrop (softened inside title banner band)
   for (int layer = 0; layer < 2; layer++) {
     float fl = float(layer + 1);
     vec2 snowPx = px + vec2(floor(uTime * (22.0 * fl)), floor(-uTime * (12.0 * fl)));
@@ -381,7 +386,7 @@ void main() {
     vec2 local = mod(snowPx, 16.0 - fl * 4.0);
     float rnd = hash21(cell + fl * 37.0);
     if (rnd > 0.91 && local.x < 1.5 && local.y < 1.5) {
-      col = mix(col, vec3(0.86, 0.96, 1.0), 0.65);
+      col = mix(col, vec3(0.86, 0.96, 1.0), 0.65 * (0.45 + 0.55 * starBannerAtten));
     }
   }
 
@@ -455,27 +460,61 @@ void main() {
   // Crisp bright rim glint along shockwave wavefront
   col += vec3(0.85, 0.92, 1.0) * shockRim;
 
-  // Diagonal Snowstorm Gusts (sh_snow_gusts parity)
+  // Crisp 640x360-Quantized Diagonal Pixel Snow Gusts & Twinkling Flakes (sh_snow_gusts parity)
   if (uSnowIntensity > 0.01) {
     vec2 px = floor(vUV * uResolution);
-    float diag = (px.x * 0.45 + px.y * 1.1) + uTime * 210.0;
-    float streak = sin(diag * 0.065) * cos((px.y - px.x * 0.35) * 0.09 - uTime * 9.0);
-    float gust = smoothstep(0.62, 0.96, streak) * uSnowIntensity * 0.34;
-    // Pixel blowing snow flakes
-    vec2 flPx = px + vec2(floor(uTime * 190.0), floor(-uTime * 85.0));
-    vec2 cell = floor(flPx / 10.0);
-    vec2 loc = mod(flPx, 10.0);
-    float flake = step(0.93, hash2(cell)) * step(loc.x, 1.5) * step(loc.y, 1.5) * uSnowIntensity;
-    col = mix(col, vec3(0.84, 0.95, 1.0), clamp(gust + flake * 0.65, 0.0, 0.72));
+
+    // 1. Razor-sharp 1px-2px diagonal blowing snow streaks (slope -1/2 across pixel grid)
+    float diagCoord = floor(px.x + px.y * 2.0 + uTime * 250.0);
+    float perpCoord = floor(px.y * 2.0 - px.x * 0.5);
+    float laneIdx = floor(perpCoord / 7.0);
+    float segIdx = floor(diagCoord / 44.0);
+    float laneRnd = hash2(vec2(segIdx, laneIdx + 3.0));
+    float inLane = step(mod(perpCoord, 7.0), 1.1);
+    float dashLen = 8.0 + floor(laneRnd * 10.0);
+    float diagStreak = step(0.74, laneRnd) * inLane * step(mod(diagCoord, 44.0), dashLen);
+
+    // 2. Crisp pixel-stepped icy wind shear ribbons (zero blurry soft ellipses)
+    float windRow = floor(px.y / 3.0);
+    float windShift = px.x + floor(px.y * 0.5) + floor(uTime * 190.0);
+    float windCell = floor(windShift / 40.0);
+    float windRnd = hash2(vec2(windCell, windRow + 29.0));
+    float windBand = step(0.84, windRnd)
+                   * step(mod(px.y, 3.0), 0.9)
+                   * step(mod(windShift, 40.0), 14.0 + floor(windRnd * 8.0));
+
+    // 3. Multi-layer twinkling 1px & 2x2 pixel snowflakes
+    vec2 flPx1 = px + vec2(floor(uTime * 175.0), floor(-uTime * 86.0));
+    vec2 cell1 = floor(flPx1 / 12.0);
+    vec2 loc1 = mod(flPx1, 12.0);
+    float rnd1 = hash2(cell1);
+    float twinkle1 = 0.62 + 0.38 * step(0.45, fract(uTime * 4.0 + rnd1 * 19.0));
+    float flake1 = step(0.915, rnd1) * step(loc1.x, 1.5) * step(loc1.y, 1.5) * twinkle1;
+
+    vec2 flPx2 = px + vec2(floor(uTime * 108.0), floor(-uTime * 52.0));
+    vec2 cell2 = floor(flPx2 / 16.0);
+    vec2 loc2 = mod(flPx2, 16.0);
+    float rnd2 = hash2(cell2 + vec2(41.0, 17.0));
+    float twinkle2 = 0.55 + 0.45 * step(0.5, fract(uTime * 3.0 + rnd2 * 23.0));
+    float flake2 = step(0.905, rnd2) * step(loc2.x, 0.9) * step(loc2.y, 0.9) * twinkle2;
+
+    float snowAlpha = clamp(
+      (diagStreak * 0.44 + windBand * 0.24 + flake1 * 0.72 + flake2 * 0.56) * uSnowIntensity,
+      0.0,
+      0.78
+    );
+    vec3 snowCol = mix(vec3(0.72, 0.92, 1.0), vec3(0.96, 0.99, 1.0), clamp(flake1 + diagStreak * 0.55, 0.0, 1.0));
+    col = mix(col, snowCol, snowAlpha);
   }
 
-  // Progressive Fimbulwinter Frost Border (sh_frost parity)
+  // Progressive Crisp Pixel-Art Fimbulwinter Frost Border (sh_frost parity)
   if (uFrostIntensity > 0.01) {
     vec2 edge = abs(baseUV - 0.5) * 2.0; // 0 at center, 1 at border
     float edgeDist = max(edge.x, edge.y);
     float crystalNoise = hash2(floor(vUV * uResolution * 0.25)) * 0.14
                        + sin(baseUV.x * 42.0) * cos(baseUV.y * 28.0) * 0.06;
-    float frostMask = smoothstep(1.08 - uFrostIntensity * 0.52, 1.02, edgeDist + crystalNoise * uFrostIntensity);
+    float rawFrost = smoothstep(1.08 - uFrostIntensity * 0.52, 1.02, edgeDist + crystalNoise * uFrostIntensity);
+    float frostMask = floor(rawFrost * 5.0 + 0.5) / 5.0;
     vec3 iceTint = mix(vec3(0.42, 0.84, 1.0), vec3(0.92, 0.98, 1.0), smoothstep(0.4, 0.95, frostMask));
     // Cold desaturation as Fimbulwinter escalates
     float gray = dot(col, vec3(0.299, 0.587, 0.114));

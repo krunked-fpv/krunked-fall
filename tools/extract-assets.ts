@@ -336,12 +336,91 @@ function buildLogicalAliases(
     }
   }
 
-  // --- 6. Tiles, FX, Companions, HUD, Pickups, Hub, Projectiles & Enemies ---
+  // --- 6. Tiles, Per-Biome Tilesets, FX, Companions, HUD, Pickups, Hub, Projectiles & Enemies ---
   aliases.tile_floor = pickSprite([/^sprCanyonFloor$/i, /^sprAshwastesFloor$/i]);
   aliases.tile_wall = pickSprite([/^sprCanyonWall$/i, /^sprAshwastesWall$/i]);
+  aliases.tile_wall_face = pickSprite([/^sprCanyonSideBottom$/i, /^sprAshwastesSideBottom$/i]);
   aliases.tile_wall_broken = pickSprite([/^sprCanyonWallBroken$/i, /^sprAshwastesWallBroken$/i]);
   aliases.tile_bedrock = pickSprite([/^sprAshwastesWall$/i, /^sprDarkcityWall$/i]);
   aliases.tile_rubble = pickSprite([/^sprCanyonFloorBroken$/i, /^sprAshwastesFloorBroken$/i]);
+
+  // Per-biome tileset aliases covering every biome in src/data/biomes.ts,
+  // src/data/overworld.ts, and underscore biome variants:
+  //   tile_floor_<id>       -> spr*Floor (horizontal multi-tile 16x16 strip)
+  //   tile_wall_<id>        -> spr*Wall
+  //   tile_wall_face_<id>   -> spr*SideBottom (16x18 front face)
+  //   tile_wall_broken_<id> -> spr*WallBroken
+  //   tile_rubble_<id>      -> spr*FloorBroken
+  const biomeTilePrefixes: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ['hub', ['Bluebunker', 'Industrial', 'Complex']],
+    ['training', ['Industrial', 'Complex', 'Bluebunker']],
+    ['canyon', ['Canyon', 'Wasteland']],
+    ['desert', ['Desert', 'Canyon']],
+    ['dunes', ['Desert', 'Canyon']],
+    ['sandcity', ['Sandcity', 'Canyon']],
+    ['sewer', ['Sewer', 'Bluebunker']],
+    ['saltpan', ['Saltpan', 'Snowland']],
+    ['sandcave', ['Sandcave', 'Snowland']],
+    ['ice_cave', ['Snowland', 'Sandcave', 'Jotunheim']],
+    ['battlefield', ['Battlefield', 'Stonyfield']],
+    ['subway', ['Subway', 'Sewer']],
+    ['jotunheim', ['Jotunheim', 'Snowland']],
+    ['keep', ['Keep', 'Darkcity']],
+    ['viking_keep', ['Keep', 'Darkcity']],
+    ['darkcity', ['Darkcity', 'Industrial']],
+    ['stony_field', ['Stonyfield', 'Battlefield']],
+    ['grassland', ['Grasslands', 'Forest']],
+    ['deadlands', ['Deadlands', 'Helheim']],
+    ['mushroom', ['Mushroomcave', 'Forest']],
+    ['mushroom_cave', ['Mushroomcave', 'Forest']],
+    ['forest', ['Forest', 'Grasslands']],
+    ['wildcity', ['Wildcity', 'Forest']],
+    ['garage', ['Garage', 'Factory']],
+    ['losttemple', ['Losttemple', 'Forest']],
+    ['lost_temple', ['Losttemple', 'Forest']],
+    ['lab', ['Mosslab', 'Bluebunker']],
+    ['moss_lab', ['Mosslab', 'Bluebunker']],
+    ['milbase', ['Milbase', 'Industrial']],
+    ['helheim', ['Helheim', 'Deadlands']],
+    ['ashwastes', ['Ashwastes', 'Wasteland']],
+    ['ash_wastes', ['Ashwastes', 'Wasteland']],
+    ['trenches', ['Trenches', 'Ashwastes']],
+    ['lavaland', ['Lavaland', 'Muspelheim']],
+    ['lava_land', ['Lavaland', 'Muspelheim']],
+    ['belly', ['Guts', 'Ashwastes']],
+    ['guts', ['Guts', 'Ashwastes']],
+    ['cindercity', ['Cindercity', 'Darkcity']],
+    ['cinder_city', ['Cindercity', 'Darkcity']],
+    ['redhall', ['Redhall', 'Shrine']],
+    ['sulfurlake', ['Sulfurlake', 'Lavaland']],
+    ['sulfur_lake', ['Sulfurlake', 'Lavaland']],
+    ['muspelheim', ['Muspelheim', 'Lavaland']],
+    ['shrine', ['Shrine', 'Redhall']],
+  ];
+
+  for (const [biomeId, prefixes] of biomeTilePrefixes) {
+    aliases[`tile_floor_${biomeId}`] = pickSprite(
+      prefixes.map((p) => new RegExp(`^spr${p}Floor$`, 'i')),
+      aliases.tile_floor,
+    );
+    aliases[`tile_wall_${biomeId}`] = pickSprite(
+      prefixes.map((p) => new RegExp(`^spr${p}Wall$`, 'i')),
+      aliases.tile_wall,
+    );
+    aliases[`tile_wall_face_${biomeId}`] = pickSprite(
+      prefixes.map((p) => new RegExp(`^spr${p}SideBottom$`, 'i')),
+      aliases.tile_wall_face,
+    );
+    aliases[`tile_wall_broken_${biomeId}`] = pickSprite(
+      prefixes.map((p) => new RegExp(`^spr${p}WallBroken$`, 'i')),
+      aliases.tile_wall_broken,
+    );
+    aliases[`tile_rubble_${biomeId}`] = pickSprite(
+      prefixes.map((p) => new RegExp(`^spr${p}FloorBroken$`, 'i')),
+      aliases.tile_rubble,
+    );
+  }
+
   aliases.tile_crate = pickSprite([
     /^sprDoodadBarrelExplosive$/i,
     /^sprDoodadBarrelFire$/i,
@@ -372,10 +451,14 @@ function buildLogicalAliases(
   aliases.pickup_mod = pickSprite([/^sprModTurbo$/i, /^sprChestLidMod$/i]);
   aliases.pickup_chest = pickSprite([/^sprChestBase$/i]);
 
-  aliases.hub_loki = pickSprite([/^sprHubLoki1$/i, /^sprHubLokiHeadSmirk$/i]);
-  aliases.hub_jotunn = pickSprite([/^sprHubDatabase$/i, /^sprHubWeapondexBelt$/i]);
-  aliases.hub_yggdrasil = pickSprite([/^sprHubTree$/i]);
-  aliases.hub_dummy = pickSprite([/^sprHubCoopRobotBody$/i, /^sprEnShopkeeperNormalIdle$/i]);
+  aliases.hub_loki = pickSprite([/^sprHubLokiHeadSmirk$/i, /^sprHubLoki1$/i]);
+  aliases.hub_jotunn = pickSprite([/^sprHubDatabaseComputer$/i, /^sprHubDatabase$/i]);
+  aliases.hub_yggdrasil = pickSprite([/^sprHubTreeComputer$/i, /^sprHubTree$/i]);
+  aliases.hub_modifiers = pickSprite([/^sprHubDifficultycomputer$/i, /^sprHubMemoryCrystal$/i]);
+  aliases.hub_weapondex = pickSprite([/^sprHubStarterWeapon$/i, /^sprHubWeapondexBelt$/i]);
+  aliases.hub_enemydex = pickSprite([/^sprHubEnemydexComputer$/i, /^sprHubDatabaseComputer$/i]);
+  aliases.hub_challenges = pickSprite([/^sprHubChallengeboardComputer$/i, /^sprHubTrophyscreen$/i]);
+  aliases.hub_dummy = pickSprite([/^sprHubStation$/i, /^sprHubCoopRobotBody$/i]);
 
   aliases.proj_bullet = pickSprite([/^sprProjectileBullet$/i]);
   aliases.proj_shell = pickSprite([/^sprProjectilePellet$/i, /^sprProjectileBullet$/i]);
