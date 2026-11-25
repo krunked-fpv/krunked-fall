@@ -282,7 +282,7 @@ export class PackManager {
    */
   async detectCustomPack(): Promise<boolean> {
     // 1. Check dev-mode read-only middleware first (fresh extracted assets on disk)
-    if (typeof fetch === 'function') {
+    if (import.meta.env?.DEV && typeof fetch === 'function') {
       try {
         const res = await fetch(`${DEV_PACK_BASE}manifest.json`, { cache: 'no-store' });
         if (res.ok) {
