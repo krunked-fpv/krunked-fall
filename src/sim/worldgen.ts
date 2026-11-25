@@ -35,6 +35,7 @@ export interface GeneratedWorld {
   map: TileMapState;
   spawnPoints: Array<{ x: number; y: number }>;
   chestPoints: Array<{ x: number; y: number }>;
+  ammoPoints: Array<{ x: number; y: number }>;
   hubInteractables: HubInteractable[];
 }
 
@@ -181,6 +182,7 @@ export function generateHubLayout(): GeneratedWorld {
     map,
     spawnPoints: [{ x: tileToWorldCenter(33, TILE_SIZE), y: tileToWorldCenter(12, TILE_SIZE) }],
     chestPoints: [],
+    ammoPoints: [],
     hubInteractables,
   };
 }
@@ -234,6 +236,16 @@ function generateBossArena(rng: RngCarrier, node: BiomeNodeDef): GeneratedWorld 
     }
   }
 
+  // Guaranteed perimeter ammo supply crate positions (outside tick-1 spawn magnet radius)
+  const bossAmmoTiles: Array<[number, number]> = [
+    [6, Math.floor(height / 2)],
+    [width - 7, Math.floor(height / 2)],
+    [Math.floor(width / 2) - 8, height - 5],
+  ];
+  for (const [ax, ay] of bossAmmoTiles) {
+    setTileAt(map, ax, ay, TileKind.Floor);
+  }
+
   map.spawnX = tileToWorldCenter(Math.floor(width / 2), TILE_SIZE);
   map.spawnY = tileToWorldCenter(height - 5, TILE_SIZE);
   map.exitX = tileToWorldCenter(Math.floor(width / 2), TILE_SIZE);
@@ -245,6 +257,10 @@ function generateBossArena(rng: RngCarrier, node: BiomeNodeDef): GeneratedWorld 
     map,
     spawnPoints: [{ x: map.exitX, y: tileToWorldCenter(9, TILE_SIZE) }],
     chestPoints: [],
+    ammoPoints: bossAmmoTiles.map(([ax, ay]) => ({
+      x: tileToWorldCenter(ax, TILE_SIZE),
+      y: tileToWorldCenter(ay, TILE_SIZE),
+    })),
     hubInteractables: [],
   };
 }
@@ -295,6 +311,7 @@ function generateSanctuaryRoom(node: BiomeNodeDef): GeneratedWorld {
     map,
     spawnPoints,
     chestPoints,
+    ammoPoints: [],
     hubInteractables: [],
   };
 }
@@ -331,6 +348,7 @@ function generateTrainingRoom(node: BiomeNodeDef): GeneratedWorld {
     map,
     spawnPoints,
     chestPoints: [{ x: tileToWorldCenter(26, TILE_SIZE), y: tileToWorldCenter(11, TILE_SIZE) }],
+    ammoPoints: [],
     hubInteractables: [],
   };
 }
@@ -462,6 +480,23 @@ function generateCombatDungeon(rng: RngCarrier, node: BiomeNodeDef): GeneratedWo
 
   const spawnPoints: Array<{ x: number; y: number }> = [];
   const chestPoints: Array<{ x: number; y: number }> = [];
+  const ammoPoints: Array<{ x: number; y: number }> = [];
+
+  if (isArena) {
+    // 3 guaranteed perimeter ammo supply pickups for Combat Arenas
+    const arenaAmmoTiles: Array<[number, number]> = [
+      [Math.floor(width / 2), 4],
+      [Math.floor(width / 2), height - 5],
+      [width - 9, 8],
+    ];
+    for (const [ax, ay] of arenaAmmoTiles) {
+      setTileAt(map, ax, ay, TileKind.Floor);
+      ammoPoints.push({
+        x: tileToWorldCenter(ax, TILE_SIZE),
+        y: tileToWorldCenter(ay, TILE_SIZE),
+      });
+    }
+  }
 
   if (reachableTiles.length > 0) {
     const desiredSpawns = Math.min(24, Math.max(6, Math.floor(reachableTiles.length / 10)));
@@ -484,6 +519,18 @@ function generateCombatDungeon(rng: RngCarrier, node: BiomeNodeDef): GeneratedWo
         });
       }
     }
+
+    // Place 2-3 guaranteed BFS-reachable ammo supply pickups in non-arena combat dungeons
+    if (!isArena) {
+      const ammoCount = rc >= 3 ? 3 : 2;
+      for (let a = 0; a < ammoCount; a++) {
+        const chosen = reachableTiles[nextInt(rng, 0, reachableTiles.length - 1)];
+        ammoPoints.push({
+          x: tileToWorldCenter(chosen.tx, TILE_SIZE),
+          y: tileToWorldCenter(chosen.ty, TILE_SIZE),
+        });
+      }
+    }
   }
 
   if (spawnPoints.length === 0) {
@@ -494,6 +541,7 @@ function generateCombatDungeon(rng: RngCarrier, node: BiomeNodeDef): GeneratedWo
     map,
     spawnPoints,
     chestPoints,
+    ammoPoints,
     hubInteractables: [],
   };
 }

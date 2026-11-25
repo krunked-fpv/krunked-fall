@@ -121,13 +121,13 @@ export const MODS: readonly ModDef[] = [
     id: 'mod_bigmag',
     sourceKey: 'mod_Bigmag',
     name: 'BIG MAG',
-    description: 'High-capacity feed reducing ammo expenditure by 25% and cooling overheat.',
+    description: 'High-capacity feed granting 18% ammo refund chance, -25% ammo cost, and -20% overheat.',
     tier: 1,
     category: 'mag',
     price: 130,
     iconKey: 'pickup_mod',
     accentColor: '#7fd1b9',
-    modifiers: { ammoCostMult: 0.75, overheatMult: 0.8 },
+    modifiers: { ammoCostMult: 0.75, overheatMult: 0.8, refundChanceAdd: 0.18 },
   },
 
   // ---- BARRELS, OPTICS & BALLISTICS (11-16) ----
