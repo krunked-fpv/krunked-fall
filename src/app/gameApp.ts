@@ -17,6 +17,8 @@ import {
   type AssetPackMode,
   type AudioSettings,
   type BossId,
+  type ControllerSettings,
+  type ControllerStatus,
   type DebugBridge,
   type HubPanel,
   type InputFrame,
@@ -103,6 +105,10 @@ export class GameApp {
   private workbenchReturnMode: 'hub' | 'overworld' | 'combat' = 'combat';
   private runCountedCurrentSession = false;
   private unsubscribePack: (() => void) | null = null;
+  private unsubscribeController: (() => void) | null = null;
+  private prevGamepadConnected = false;
+  private prevGamepadCount = 0;
+  private prevGamepadToastLabel = '';
 
   constructor(
     appRoot: HTMLElement,
@@ -140,13 +146,14 @@ export class GameApp {
     this.audio = new AudioEngine(save.audioSettings);
     this.syncAudioPackSource();
 
-    // Initialize Unified Input Manager (KB + Mouse screenToWorld + Gamepad + Rebinds)
+    // Initialize Unified Input Manager (KB + Mouse + Multi-Platform Gamepad + Touch)
     this.input = new InputManager(
       this.canvas,
       (clientX, clientY, simState) =>
         this.renderer.screenToWorld(clientX, clientY, simState),
       save.keybinds,
       () => this.audio.unlock(),
+      save.controllerSettings,
     );
 
     // Build complete DebugBridge conforming strictly to contracts
@@ -224,6 +231,8 @@ export class GameApp {
       },
       onUpdateRenderSettings: (partial) => this.updateRenderSettingsInternal(partial),
       onUpdateAudioSettings: (partial) => this.updateAudioSettingsInternal(partial),
+      onUpdateControllerSettings: (partial) =>
+        this.updateControllerSettingsInternal(partial),
       onSetPackMode: (mode) => this.setPackModeInternal(mode),
       onLoadCustomPack: (files) => this.loadCustomPackFromFilesInternal(files),
       onStartRebind: (action) => this.startKeybindCapture(action),
@@ -232,6 +241,12 @@ export class GameApp {
         const defaults = this.input.resetKeybinds();
         this.saveManager.getData().keybinds = { ...defaults };
         this.saveManager.save();
+      },
+      onTouchInput: (touchInput) => this.input.setTouchInput(touchInput),
+      onTouchAction: (action) => this.input.triggerTouchAction(action),
+      onTouchDetected: () => {
+        this.audio.unlock();
+        this.input.getTouchDetector().notifyTouch();
       },
       onPlayUiClick: () => {
         this.audio.unlock();
@@ -259,6 +274,14 @@ export class GameApp {
     });
 
     this.input.attach();
+    this.input.pollGamepad(performance.now());
+    const initCtrl = this.input.getControllerStatus();
+    this.prevGamepadConnected = initCtrl.gamepadConnected;
+    this.prevGamepadCount = initCtrl.gamepadCount;
+    this.prevGamepadToastLabel = this.formatGamepadToastTitle(initCtrl);
+    this.unsubscribeController = this.input.onControllerChange((status) => {
+      this.handleControllerStatusChange(status);
+    });
     window.addEventListener('resize', this.handleResize);
     this.handleResize();
 
@@ -282,6 +305,8 @@ export class GameApp {
     window.removeEventListener('resize', this.handleResize);
     this.unsubscribePack?.();
     this.unsubscribePack = null;
+    this.unsubscribeController?.();
+    this.unsubscribeController = null;
     this.input.detach();
     this.ui.dispose();
     this.audio.dispose();
@@ -304,8 +329,21 @@ export class GameApp {
     this.lastRafMs = nowMs;
     const clampedDtSec = Math.min(MAX_FRAME_DELTA_SEC, rawDtSec);
 
-    // Handle global UI hotkeys (F9 Drawer, TAB Workbench, ESC Pause/Close)
+    // Sync blocking state before polling so gamepad face buttons route cleanly
+    this.input.setUiBlockingGameplay(this.ui.isBlockingGameplay(this.state));
+    this.input.pollGamepad(nowMs);
+
+    // Handle global UI hotkeys (F9 Drawer, TAB/View Workbench, ESC/Menu Pause)
     this.processUiInputActions();
+    this.input.setUiBlockingGameplay(this.ui.isBlockingGameplay(this.state));
+
+    // Drive responsive 60/120 FPS gamepad menu navigation across all screens/modals
+    const navActions = this.input.consumeUiNavActions(nowMs);
+    this.ui.processGamepadNav(
+      navActions,
+      this.state,
+      this.input.getControllerStatus(),
+    );
     this.input.setUiBlockingGameplay(this.ui.isBlockingGameplay(this.state));
 
     // Fixed 60 Hz deterministic simulation accumulator
@@ -322,7 +360,7 @@ export class GameApp {
       this.accumulatorSec = 0;
     }
 
-    // Drain simulation events into WebGL2Renderer, AudioEngine & Save progression
+    // Drain simulation events into WebGL2Renderer, AudioEngine, Haptics & Save progression
     this.flushSimEvents();
     this.checkRoomTransitionAndRunEnd(prevScreenMode);
 
@@ -352,14 +390,23 @@ export class GameApp {
         nowMs * 0.001,
       );
 
+      const aimPos = this.input.getAimScreenPos(
+        this.state,
+        (wx, wy, simState) => this.renderer.worldToScreen(wx, wy, simState),
+      );
+      const controllerStatus = this.input.getControllerStatus();
+      const promptGlyphs = this.input.getPromptGlyphs();
+
       this.ui.render(
         this.state,
         this.saveManager.getData(),
         this.saveManager.hasExistingSave(),
         this.buildMetrics(),
-        this.input.getCursorClientPos(),
+        aimPos,
         this.input.isRebinding(),
         nowMs,
+        controllerStatus,
+        promptGlyphs,
       );
     }
   };
@@ -386,7 +433,111 @@ export class GameApp {
 
     this.renderer.ingestEvents(events, this.state);
     this.audio.handleEvents(events, this.state.player.x);
+    this.triggerHapticsForEvents(events);
     this.processProgressionEvents(events);
+  }
+
+  private triggerHapticsForEvents(events: readonly SimEvent[]): void {
+    let bestIntensity = 0;
+    let bestDurationMs = 0;
+    let bestWeakScale = 0.65;
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      let intensity = 0;
+      let durationMs = 0;
+      let weakScale = 0.65;
+
+      switch (ev.type) {
+        case 'weapon_fire':
+          intensity = 0.18;
+          durationMs = 42;
+          weakScale = 0.9;
+          break;
+        case 'ability_trigger':
+          intensity = 0.34;
+          durationMs = 68;
+          weakScale = 0.85;
+          break;
+        case 'player_hit':
+          intensity = 0.68;
+          durationMs = 155;
+          weakScale = 0.72;
+          break;
+        case 'explosion': {
+          const scale = Math.max(0.6, Math.min(1.15, ev.intensity || 1));
+          intensity = Math.min(0.92, 0.78 * scale);
+          durationMs = 185;
+          weakScale = 0.62;
+          break;
+        }
+        case 'boss_phase2':
+          intensity = 1.0;
+          durationMs = 320;
+          weakScale = 0.88;
+          break;
+        default:
+          break;
+      }
+
+      if (intensity > bestIntensity) {
+        bestIntensity = intensity;
+        bestDurationMs = durationMs;
+        bestWeakScale = weakScale;
+      }
+    }
+
+    if (bestIntensity > 0) {
+      this.input.rumble(bestIntensity, bestDurationMs, bestWeakScale);
+    }
+  }
+
+  private formatGamepadToastTitle(status: ControllerStatus): string {
+    const low = status.gamepadName.toLowerCase();
+    switch (status.gamepadProfile) {
+      case 'xbox':
+        return 'XBOX CONTROLLER';
+      case 'playstation':
+        return low.includes('dualsense')
+          ? 'DUALSENSE CONTROLLER'
+          : low.includes('dualshock')
+            ? 'DUALSHOCK CONTROLLER'
+            : 'PLAYSTATION CONTROLLER';
+      case 'nintendo':
+        return 'NINTENDO CONTROLLER';
+      case 'steamdeck':
+        return 'STEAM DECK CONTROLLER';
+      case 'tesla':
+        return 'TESLA CONTROLLER';
+      default:
+        return 'GAMEPAD CONTROLLER';
+    }
+  }
+
+  private handleControllerStatusChange(status: ControllerStatus): void {
+    const wasConnected = this.prevGamepadConnected;
+    const prevCount = this.prevGamepadCount;
+    const prevLabel = this.prevGamepadToastLabel;
+
+    this.prevGamepadConnected = status.gamepadConnected;
+    this.prevGamepadCount = status.gamepadCount;
+    const curLabel = this.formatGamepadToastTitle(status);
+    if (status.gamepadConnected) {
+      this.prevGamepadToastLabel = curLabel;
+    }
+
+    if (
+      status.gamepadConnected &&
+      (!wasConnected || status.gamepadCount > prevCount)
+    ) {
+      this.audio.unlock();
+      this.audio.playUi('confirm');
+      this.ui.showControllerToast(`${curLabel} CONNECTED`, 'connected');
+    } else if (wasConnected && !status.gamepadConnected) {
+      this.audio.playUi('click');
+      const label = prevLabel || 'CONTROLLER';
+      this.ui.showControllerToast(`${label} DISCONNECTED`, 'disconnected');
+    }
   }
 
   private processProgressionEvents(events: readonly SimEvent[]): void {
@@ -693,6 +844,16 @@ export class GameApp {
     this.saveManager.save();
   }
 
+  private updateControllerSettingsInternal(
+    partial: Partial<ControllerSettings>,
+  ): void {
+    this.input.setControllerSettings(partial);
+    this.saveManager.getData().controllerSettings = {
+      ...this.input.getControllerSettings(),
+    };
+    this.saveManager.save();
+  }
+
   private async setPackModeInternal(mode: AssetPackMode): Promise<boolean> {
     const ok = await this.packManager.setMode(mode);
     this.syncAudioPackSource();
@@ -895,6 +1056,7 @@ export class GameApp {
       resetSave: () => {
         const clean = this.saveManager.reset();
         this.input.setKeybinds(clean.keybinds);
+        this.input.setControllerSettings(clean.controllerSettings);
         this.audio.applySettings(clean.audioSettings);
         void this.packManager.setMode('builtin');
         this.syncAudioPackSource();

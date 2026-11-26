@@ -13,12 +13,14 @@
 
 import {
   AMMO_NAMES,
+  type ControllerStatus,
   type HubPanel,
   type OutcastId,
   type SaveData,
   type SimState,
   type SkinId,
 } from '../contracts/index.js';
+import type { GamepadGlyphSet } from '../input/index.js';
 import {
   buildBuiltinPackPages,
   getBuiltinPackManifest,
@@ -57,6 +59,13 @@ function parseHexColor(hex: string): [number, number, number] {
 
 function clampByte(n: number): number {
   return n < 0 ? 0 : n > 255 ? 255 : Math.round(n);
+}
+
+function formatPromptTag(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
+  return `[${trimmed}]`;
 }
 
 export interface HubUiCallbacks {
@@ -143,7 +152,12 @@ export class HubUi {
     }
   }
 
-  public render(state: SimState, save: SaveData): void {
+  public render(
+    state: SimState,
+    save: SaveData,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     if (!this.visible) return;
 
     // 1. Check nearby Hub station for walk-up prompt
@@ -159,6 +173,9 @@ export class HubUi {
       }
     }
 
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const promptKey = `${activeDevice}:${controllerStatus?.gamepadProfile ?? 'generic'}:${prompts?.interact ?? ''}:${prompts?.workbench ?? ''}:${prompts?.pause ?? ''}:${prompts?.cancel ?? ''}`;
+
     const hudSig = [
       p.outcastId,
       p.skinId,
@@ -170,11 +187,12 @@ export class HubUi {
       nearestStation?.id ?? 'none',
       state.loopCount,
       save.completedChallenges.length,
+      promptKey,
     ].join('|');
 
     if (hudSig !== this.lastHudSig) {
       this.lastHudSig = hudSig;
-      this.renderHubChrome(state, save, nearestStation);
+      this.renderHubChrome(state, save, nearestStation, controllerStatus, prompts);
     }
 
     // 2. Render active Hub Modal Panel (if any)
@@ -190,10 +208,10 @@ export class HubUi {
     }
 
     this.modalBackdrop.style.display = 'flex';
-    const modalSig = this.computeModalSignature(state, save);
+    const modalSig = `${this.computeModalSignature(state, save)}|${promptKey}`;
     if (modalSig !== this.lastModalSig) {
       this.lastModalSig = modalSig;
-      this.renderModal(state, save);
+      this.renderModal(state, save, controllerStatus, prompts);
     } else if (state.hubPanel === 'jotunn_matic' && this.jotunnPreviewCanvas) {
       const animFrame = Math.floor(state.tick / 14) % 4;
       if (animFrame !== this.jotunnPreviewFrame) {
@@ -212,10 +230,31 @@ export class HubUi {
     state: SimState,
     save: SaveData,
     nearestStation: SimState['hubInteractables'][number] | null,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
   ): void {
     const p = state.player;
     const outcast = getOutcastDef(p.outcastId);
     const skin = getSkinDef(p.skinId);
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const pauseTag =
+      activeDevice === 'touch'
+        ? 'MENU'
+        : prompts
+          ? `${formatPromptTag(prompts.pause)} MENU`
+          : '[ESC] MENU';
+    const interactTag =
+      activeDevice === 'touch'
+        ? '[USE]'
+        : prompts
+          ? formatPromptTag(prompts.interact)
+          : '[E]';
+    const benchLabel =
+      activeDevice === 'touch'
+        ? 'WORKBENCH'
+        : prompts
+          ? `${formatPromptTag(prompts.workbench)} WORKBENCH`
+          : '[TAB] WORKBENCH';
 
     // Top bar
     this.topEl.innerHTML = '';
@@ -249,7 +288,7 @@ export class HubUi {
     });
     deployBtn.dataset.testid = 'hub-overworld-top-btn';
 
-    const pauseBtn = this.makeBtn('[ESC] MENU', 'kf-btn kf-btn-sm', () => {
+    const pauseBtn = this.makeBtn(pauseTag, 'kf-btn kf-btn-sm', () => {
       this.cb.onPlayUiClick();
       this.cb.onOpenPause();
     });
@@ -262,7 +301,7 @@ export class HubUi {
       this.promptEl.style.display = 'flex';
       this.promptEl.innerHTML = '';
       const txt = document.createElement('span');
-      txt.innerHTML = `<span class="kf-pill kf-pill-gold">[E]</span> ${nearestStation.label}`;
+      txt.innerHTML = `<span class="kf-pill kf-pill-gold">${interactTag}</span> ${nearestStation.label}`;
       const openBtn = this.makeBtn('OPEN', 'kf-btn kf-btn-sm kf-btn-gold', () => {
         this.cb.onPlayUiClick();
         if (nearestStation.id === 'bifrost') {
@@ -359,7 +398,7 @@ export class HubUi {
         action: () => this.cb.onOpenPanel('challenges'),
       },
       {
-        label: '[TAB] WORKBENCH',
+        label: benchLabel,
         cls: 'kf-btn kf-btn-sm',
         testId: 'hub-dock-workbench',
         action: () => this.cb.onOpenWorkbench(),
@@ -407,7 +446,12 @@ export class HubUi {
     ].join('|');
   }
 
-  private renderModal(state: SimState, save: SaveData): void {
+  private renderModal(
+    state: SimState,
+    save: SaveData,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     this.modalBackdrop.innerHTML = '';
     this.jotunnPreviewCanvas = null;
     this.jotunnPreviewFrame = -1;
@@ -417,6 +461,7 @@ export class HubUi {
       state.hubPanel === 'skill_tree'
         ? 'kf-panel kf-panel-cyan kf-modal kf-modal-skill'
         : 'kf-panel kf-panel-cyan kf-modal';
+    modal.dataset.testid = `hub-modal-${state.hubPanel}`;
 
     const titleMap: Record<Exclude<HubPanel, 'none'>, { title: string; sub: string }> = {
       loki: { title: "LOKI'S HEAD", sub: 'DECAPITATED MASTERMIND · THREE-ROCK LAB' },
@@ -446,12 +491,19 @@ export class HubUi {
     const panelKey = state.hubPanel;
     if (panelKey === 'none') return;
     const meta = titleMap[panelKey];
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const closeLabel =
+      activeDevice === 'touch'
+        ? 'CLOSE'
+        : activeDevice === 'gamepad' && prompts
+          ? `CLOSE ${formatPromptTag(prompts.cancel)}`
+          : 'CLOSE [ESC]';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     const titleWrap = document.createElement('div');
     titleWrap.innerHTML = `<span class="kf-modal-title">${meta.title}</span><span class="kf-modal-subtitle">${meta.sub}</span>`;
-    const closeBtn = this.makeBtn('CLOSE [ESC]', 'kf-btn kf-btn-sm kf-btn-danger', () => {
+    const closeBtn = this.makeBtn(closeLabel, 'kf-btn kf-btn-sm kf-btn-danger', () => {
       this.cb.onPlayUiClick();
       this.cb.onOpenPanel('none');
     });
@@ -510,15 +562,22 @@ export class HubUi {
     ];
 
     for (const topic of allTopics) {
+      const isSelected = this.selectedLokiTopic === topic.id;
       const btn = this.makeBtn(
         topic.prompt,
-        `kf-btn kf-loki-topic-btn${this.selectedLokiTopic === topic.id ? ' active' : ''}`,
+        `kf-btn kf-loki-topic-btn${isSelected ? ' active' : ''}`,
         () => {
           this.cb.onPlayUiClick();
           this.selectedLokiTopic = topic.id;
           this.lastModalSig = '';
         },
       );
+      btn.dataset.testid = `loki-topic-${topic.id}`;
+      btn.dataset.gpTabGroup = 'loki-topics';
+      if (isSelected) {
+        btn.dataset.gpTabActive = 'true';
+        btn.dataset.gpInitial = 'true';
+      }
       topicsCol.appendChild(btn);
     }
 

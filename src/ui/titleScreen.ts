@@ -2,9 +2,88 @@
 // KRUNKEDFALL — Title Screen UI (Floats over Live WebGL2 Menu Aurora Canvas)
 // ============================================================================
 
-import type { AssetPackMode, SaveData } from '../contracts/index.js';
+import type {
+  AssetPackMode,
+  ControllerStatus,
+  SaveData,
+} from '../contracts/index.js';
 import { UI_LABELS } from '../data/index.js';
+import type { GamepadGlyphSet } from '../input/index.js';
 import type { CustomPackImportResult } from '../render/index.js';
+
+function formatControllerBadge(status: ControllerStatus | undefined): {
+  text: string;
+  badgeClass: string;
+} | null {
+  if (!status) return null;
+  if (status.gamepadConnected) {
+    let label = 'GAMEPAD';
+    const lowName = status.gamepadName.toLowerCase();
+    switch (status.gamepadProfile) {
+      case 'xbox':
+        label = 'XBOX';
+        break;
+      case 'playstation':
+        label = lowName.includes('dualsense')
+          ? 'DUALSENSE'
+          : lowName.includes('dualshock')
+            ? 'DUALSHOCK'
+            : 'PLAYSTATION';
+        break;
+      case 'nintendo':
+        label = 'NINTENDO';
+        break;
+      case 'steamdeck':
+        label = 'STEAM DECK';
+        break;
+      case 'tesla':
+        label = 'TESLA GAMEPAD';
+        break;
+      default:
+        label = 'GAMEPAD';
+        break;
+    }
+    const countTag = status.gamepadCount > 1 ? ` ×${status.gamepadCount}` : '';
+    const profileMod = status.gamepadProfile === 'tesla' ? 'tesla' : 'gamepad';
+    return {
+      text: `GAMEPAD READY: ${label}${countTag}`,
+      badgeClass: `kf-controller-badge connected ${profileMod}`,
+    };
+  }
+  if (status.touchSensed) {
+    return {
+      text: status.isTeslaBrowser
+        ? 'TESLA TOUCH CONTROLS READY'
+        : 'TOUCH CONTROLS READY',
+      badgeClass: status.isTeslaBrowser
+        ? 'kf-controller-badge tesla'
+        : 'kf-controller-badge touch',
+    };
+  }
+  return null;
+}
+
+function formatFooterLegend(
+  status: ControllerStatus | undefined,
+  prompts: GamepadGlyphSet | undefined,
+): string {
+  if (status?.activeDevice === 'touch') {
+    return 'LEFT STICK MOVE · RIGHT STICK AIM & AUTO-FIRE · TAP ABILITY / POWER / SWAP / USE';
+  }
+  if (status?.activeDevice === 'gamepad') {
+    const p = prompts;
+    const move = p?.move || 'LS';
+    const aim = p?.aim || 'RS';
+    const fire = p?.fire || 'RT';
+    const abil = p?.ability || 'LT';
+    const pwr = p?.power || 'RB';
+    const swap = p?.swap || 'X';
+    const use = p?.interact || 'A';
+    const bench = p?.workbench || 'VIEW';
+    return `${move} MOVE · ${aim} AIM · ${fire} FIRE · ${abil} ABILITY · ${pwr} POWER · ${swap} SWAP · ${use} USE · ${bench} BENCH`;
+  }
+  return 'WASD MOVE · LMB FIRE · SPACE/RMB ABILITY · Q POWER · E SWAP/INTERACT · TAB BENCH';
+}
 
 export interface TitleScreenCallbacks {
   onNewRun(): void;
@@ -48,6 +127,8 @@ export class TitleScreen {
     hasContinue: boolean,
     packMode: AssetPackMode,
     customPackAvailable: boolean,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
   ): void {
     if (!this.visible) return;
 
@@ -63,6 +144,14 @@ export class TitleScreen {
       this.packMessage,
       this.packMessageIsError ? 'e' : 'o',
       this.busy ? 'b' : 'i',
+      controllerStatus?.activeDevice ?? 'keyboard',
+      controllerStatus?.gamepadConnected ? 'g1' : 'g0',
+      controllerStatus?.gamepadProfile ?? 'generic',
+      controllerStatus?.gamepadName ?? '',
+      controllerStatus?.gamepadCount ?? 0,
+      controllerStatus?.touchSensed ? 't1' : 't0',
+      controllerStatus?.isTeslaBrowser ? 'ts1' : 'ts0',
+      prompts?.confirm ?? '',
     ].join('|');
 
     if (sig === this.lastSignature) return;
@@ -78,6 +167,18 @@ export class TitleScreen {
       <h1 class="kf-title-logo">${UI_LABELS.gameTitle}</h1>
       <div class="kf-title-subtitle" data-testid="title-subtitle">${UI_LABELS.gameSubtitle}</div>
     `;
+    const badgeInfo = formatControllerBadge(controllerStatus);
+    if (badgeInfo) {
+      const badge = document.createElement('div');
+      badge.className = badgeInfo.badgeClass;
+      badge.dataset.testid = 'title-controller-badge';
+      const dot = document.createElement('span');
+      dot.className = 'kf-controller-dot';
+      const label = document.createElement('span');
+      label.textContent = badgeInfo.text;
+      badge.append(dot, label);
+      header.appendChild(badge);
+    }
     this.root.appendChild(header);
 
     // Center Menu Box
@@ -218,8 +319,9 @@ export class TitleScreen {
     // Bottom Telemetry / Controls Strip
     const footer = document.createElement('div');
     footer.className = 'kf-title-footer';
+    const legend = formatFooterLegend(controllerStatus, prompts);
     footer.innerHTML = `
-      <span>WASD MOVE · LMB FIRE · SPACE/RMB ABILITY · Q POWER · E SWAP/INTERACT · TAB BENCH</span>
+      <span data-testid="title-controls-legend">${legend}</span>
       <span>RUNS ${save.totalRuns} · KILLS ${save.totalKills} · BOSSES ${save.defeatedBosses.length}/6 · BEST LOOP ${save.bestLoop} · [F9] PLAYTEST</span>
     `;
     this.root.appendChild(footer);

@@ -848,8 +848,47 @@ export interface SimState {
 }
 
 // ============================================================================
-// RENDER, PACK, AUDIO, SAVE & DEBUG CONTRACTS
+// RENDER, PACK, AUDIO, CONTROLLER, SAVE & DEBUG CONTRACTS
 // ============================================================================
+
+export type InputDeviceKind = 'keyboard' | 'gamepad' | 'touch';
+export type GamepadProfileKind =
+  | 'xbox'
+  | 'playstation'
+  | 'nintendo'
+  | 'steamdeck'
+  | 'tesla'
+  | 'generic';
+
+export interface ControllerSettings {
+  deadzone: number;
+  vibrationEnabled: boolean;
+  twinStickAutoFire: boolean;
+  touchOpacity: number;
+  touchScale: number;
+}
+
+export interface ControllerStatus {
+  activeDevice: InputDeviceKind;
+  touchSensed: boolean;
+  touchControlsVisible: boolean;
+  gamepadConnected: boolean;
+  gamepadProfile: GamepadProfileKind;
+  gamepadName: string;
+  gamepadCount: number;
+  isTeslaBrowser: boolean;
+}
+
+export interface UiNavActions {
+  moveX: -1 | 0 | 1;
+  moveY: -1 | 0 | 1;
+  confirm: boolean;
+  cancel: boolean;
+  tabPrev: boolean;
+  tabNext: boolean;
+  pageUp: boolean;
+  pageDown: boolean;
+}
 
 export interface RenderSettings {
   targetFps: TargetFps;
@@ -926,6 +965,7 @@ export interface SaveData {
   activeModifiers: string[];
   renderSettings: RenderSettings;
   audioSettings: AudioSettings;
+  controllerSettings: ControllerSettings;
   keybinds: Record<string, string>;
 }
 

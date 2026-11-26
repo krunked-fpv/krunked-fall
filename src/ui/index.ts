@@ -12,4 +12,11 @@ export {
   type OverlaysCallbacks,
 } from './overlays.js';
 export { PlaytestDrawer, type PlaytestDrawerCallbacks } from './playtestDrawer.js';
+export { GamepadNavigator, type GamepadNavCallbacks } from './gamepadNav.js';
+export {
+  TouchControls,
+  type TouchActionKind,
+  type TouchControlsCallbacks,
+  type TouchControlsInputState,
+} from './touchControls.js';
 export { UiManager, type UiManagerCallbacks } from './uiManager.js';

@@ -14,6 +14,7 @@
 
 import {
   AMMO_NAMES,
+  type ControllerStatus,
   type SimState,
   type WeaponInstance,
 } from '../contracts/index.js';
@@ -24,6 +25,20 @@ import {
   getOverworldNode,
   getWeaponDef,
 } from '../data/index.js';
+import type { GamepadGlyphSet } from '../input/index.js';
+
+function formatPromptTag(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
+  return `[${trimmed}]`;
+}
+
+function compactAbilityTag(raw: string): string {
+  const upper = raw.trim().toUpperCase();
+  if (upper === 'SPACE' || upper === '[SPACE]') return '[SPC]';
+  return formatPromptTag(raw);
+}
 
 export interface CombatHudCallbacks {
   onOpenWorkbench(): void;
@@ -68,6 +83,8 @@ export class CombatHud {
   // Top-Right node banner
   private readonly nodeBannerText: HTMLElement;
   private readonly enemiesLeftPill: HTMLElement;
+  private readonly benchQuickBtn: HTMLButtonElement;
+  private readonly pauseQuickBtn: HTMLButtonElement;
 
   // Top-Center Boss & Freeze Storm
   private readonly bossBox: HTMLElement;
@@ -96,6 +113,8 @@ export class CombatHud {
 
   private lastAbilitySig = '';
   private lastModSigs: [string, string] = ['', ''];
+  private lastBenchLabel = '[TAB] BENCH';
+  private lastPauseLabel = '[ESC] PAUSE';
 
   constructor(parent: HTMLElement, callbacks: CombatHudCallbacks) {
     this.cb = callbacks;
@@ -207,6 +226,7 @@ export class CombatHud {
       this.cb.onPlayUiClick();
       this.cb.onOpenWorkbench();
     });
+    this.benchQuickBtn = benchQuick;
 
     const pauseQuick = document.createElement('button');
     pauseQuick.type = 'button';
@@ -217,6 +237,7 @@ export class CombatHud {
       this.cb.onPlayUiClick();
       this.cb.onOpenPause();
     });
+    this.pauseQuickBtn = pauseQuick;
 
     trBtns.append(benchQuick, pauseQuick);
     tr.append(banner, trBtns);
@@ -397,10 +418,54 @@ export class CombatHud {
 
   public update(
     state: SimState,
-    cursor: { x: number; y: number; visible: boolean },
+    cursor: { x: number; y: number; visible: boolean; isStickAim?: boolean; isStick?: boolean },
     showCrosshair: boolean,
+    prompts?: GamepadGlyphSet,
+    controllerStatus?: ControllerStatus,
   ): void {
     if (!this.visible) return;
+
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const benchLabel =
+      activeDevice === 'touch'
+        ? 'BENCH'
+        : prompts
+          ? `${formatPromptTag(prompts.workbench)} BENCH`
+          : '[TAB] BENCH';
+    if (benchLabel !== this.lastBenchLabel) {
+      this.lastBenchLabel = benchLabel;
+      this.benchQuickBtn.textContent = benchLabel;
+    }
+
+    const pauseLabel =
+      activeDevice === 'touch'
+        ? 'PAUSE'
+        : prompts
+          ? `${formatPromptTag(prompts.pause)} PAUSE`
+          : '[ESC] PAUSE';
+    if (pauseLabel !== this.lastPauseLabel) {
+      this.lastPauseLabel = pauseLabel;
+      this.pauseQuickBtn.textContent = pauseLabel;
+    }
+
+    const abilityReadyLabel =
+      activeDevice === 'touch'
+        ? 'ABIL'
+        : prompts
+          ? compactAbilityTag(prompts.ability)
+          : '[SPC]';
+    const powerReadyLabel =
+      activeDevice === 'touch'
+        ? 'PWR READY!'
+        : prompts
+          ? `${formatPromptTag(prompts.power)} POWER READY!`
+          : '[Q] POWER READY!';
+    const interactTag =
+      activeDevice === 'touch'
+        ? '[USE]'
+        : prompts
+          ? formatPromptTag(prompts.interact)
+          : '[E]';
 
     const p = state.player;
     const outcast = getOutcastDef(p.outcastId);
@@ -438,7 +503,7 @@ export class CombatHud {
     }
     this.abilityText.textContent =
       p.abilityCharges > 0
-        ? '[SPC]'
+        ? abilityReadyLabel
         : `${(p.abilityCooldown / 60).toFixed(1)}s`;
 
     const pwrRatio = Math.max(
@@ -454,7 +519,7 @@ export class CombatHud {
       p.powerActiveTicks > 0
         ? `ACTIVE ${(p.powerActiveTicks / 60).toFixed(1)}s`
         : pwrReady
-          ? '[Q] POWER READY!'
+          ? powerReadyLabel
           : `PWR ${Math.floor(pwrRatio * 100)}%`;
 
     const xpPct = Math.max(0, Math.min(100, (p.xp / Math.max(1, p.xpToNext)) * 100));
@@ -523,17 +588,17 @@ export class CombatHud {
       this.lokiToastEl.style.display = 'none';
     }
 
-    // Contextual [E] Pickup / Exit Prompt
+    // Contextual Interact Pickup / Exit Prompt
     let promptText = '';
     if (state.map.exitUnlocked && Math.hypot(p.x - state.map.exitX, p.y - state.map.exitY) <= 44) {
-      promptText = '[E] ENTER BIFROST PORTAL → OVERWORLD';
+      promptText = `${interactTag} ENTER BIFROST PORTAL → OVERWORLD`;
     } else {
       for (let i = 0; i < state.pickups.length; i++) {
         const pk = state.pickups[i];
         if (pk.kind === 'weapon' && pk.weaponUniqueId !== undefined) {
           if (Math.hypot(pk.x - p.x, pk.y - p.y) <= p.radius + 24) {
             const wDef = getWeaponDef(pk.weaponUniqueId);
-            promptText = `[E] EQUIP ${wDef.name} (T${wDef.weaponTier})`;
+            promptText = `${interactTag} EQUIP ${wDef.name} (T${wDef.weaponTier})`;
             break;
           }
         }
@@ -547,10 +612,17 @@ export class CombatHud {
       this.promptEl.style.display = 'none';
     }
 
-    // Dynamic Crosshair
+    // Dynamic Crosshair / Twin-Stick Projected Aim Reticle
+    const isStickAim = Boolean(
+      cursor.isStickAim ||
+        cursor.isStick ||
+        activeDevice === 'gamepad' ||
+        activeDevice === 'touch',
+    );
     if (showCrosshair && cursor.visible) {
       const wepDef = activeWep ? getWeaponDef(activeWep.uniqueId) : null;
       this.crosshairEl.classList.add('visible');
+      this.crosshairEl.classList.toggle('kf-crosshair-stick', isStickAim);
       this.crosshairEl.style.left = `${cursor.x}px`;
       this.crosshairEl.style.top = `${cursor.y}px`;
       this.crosshairEl.style.color = wepDef?.crosshairColor || '#39d6ff';
@@ -558,6 +630,7 @@ export class CombatHud {
       this.crosshairEl.style.transform = `scale(${recoilScale.toFixed(2)})`;
     } else {
       this.crosshairEl.classList.remove('visible');
+      this.crosshairEl.classList.remove('kf-crosshair-stick');
     }
   }
 

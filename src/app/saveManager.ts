@@ -11,6 +11,7 @@ import {
   type AssetPackMode,
   type AudioSettings,
   type BossId,
+  type ControllerSettings,
   type OutcastId,
   type RenderSettings,
   type SaveData,
@@ -30,7 +31,7 @@ import {
   WEAPON_BY_UNIQUE_ID,
 } from '../data/index.js';
 import { DEFAULT_AUDIO_SETTINGS } from '../audio/index.js';
-import { DEFAULT_KEYBINDS } from '../input/index.js';
+import { DEFAULT_CONTROLLER_SETTINGS, DEFAULT_KEYBINDS } from '../input/index.js';
 
 export const DEFAULT_RENDER_SETTINGS: Readonly<RenderSettings> = {
   targetFps: 120,
@@ -82,6 +83,7 @@ export function createDefaultSaveData(): SaveData {
     activeModifiers: [],
     renderSettings: { ...DEFAULT_RENDER_SETTINGS },
     audioSettings: { ...DEFAULT_AUDIO_SETTINGS },
+    controllerSettings: { ...DEFAULT_CONTROLLER_SETTINGS },
     keybinds: { ...DEFAULT_KEYBINDS },
   };
 }
@@ -258,6 +260,35 @@ export function sanitizeSaveData(raw: unknown): SaveData {
       typeof rawAudio.muted === 'boolean' ? rawAudio.muted : DEFAULT_AUDIO_SETTINGS.muted,
   };
 
+  // Controller & touch settings
+  const rawController =
+    obj.controllerSettings && typeof obj.controllerSettings === 'object'
+      ? (obj.controllerSettings as Record<string, unknown>)
+      : {};
+  const controllerSettings: ControllerSettings = {
+    deadzone:
+      typeof rawController.deadzone === 'number' && Number.isFinite(rawController.deadzone)
+        ? clamp(rawController.deadzone, 0.08, 0.35)
+        : DEFAULT_CONTROLLER_SETTINGS.deadzone,
+    vibrationEnabled:
+      typeof rawController.vibrationEnabled === 'boolean'
+        ? rawController.vibrationEnabled
+        : DEFAULT_CONTROLLER_SETTINGS.vibrationEnabled,
+    twinStickAutoFire:
+      typeof rawController.twinStickAutoFire === 'boolean'
+        ? rawController.twinStickAutoFire
+        : DEFAULT_CONTROLLER_SETTINGS.twinStickAutoFire,
+    touchOpacity:
+      typeof rawController.touchOpacity === 'number' &&
+      Number.isFinite(rawController.touchOpacity)
+        ? clamp(rawController.touchOpacity, 0.3, 1.0)
+        : DEFAULT_CONTROLLER_SETTINGS.touchOpacity,
+    touchScale:
+      typeof rawController.touchScale === 'number' && Number.isFinite(rawController.touchScale)
+        ? clamp(rawController.touchScale, 0.75, 1.35)
+        : DEFAULT_CONTROLLER_SETTINGS.touchScale,
+  };
+
   // Keybinds
   const keybinds: Record<string, string> = { ...DEFAULT_KEYBINDS };
   if (obj.keybinds && typeof obj.keybinds === 'object') {
@@ -286,6 +317,7 @@ export function sanitizeSaveData(raw: unknown): SaveData {
     activeModifiers: [...activeModifierSet],
     renderSettings,
     audioSettings,
+    controllerSettings,
     keybinds,
   };
 }

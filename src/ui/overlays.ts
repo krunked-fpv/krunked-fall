@@ -8,6 +8,8 @@ import {
   AMMO_NAMES,
   type AssetPackMode,
   type AudioSettings,
+  type ControllerSettings,
+  type ControllerStatus,
   type RenderSettings,
   type SaveData,
   type SimState,
@@ -20,8 +22,11 @@ import {
   getWeaponDef,
 } from '../data/index.js';
 import {
+  DEFAULT_CONTROLLER_SETTINGS,
   KEYBIND_ACTIONS,
   formatKeyCode,
+  getGamepadGlyphs,
+  type GamepadGlyphSet,
   type KeybindAction,
 } from '../input/index.js';
 import {
@@ -29,6 +34,82 @@ import {
   getWeaponModLimit,
   type EffectiveWeaponStats,
 } from '../sim/index.js';
+
+function formatPromptTag(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
+  return `[${trimmed}]`;
+}
+
+function formatControllerStatusLabel(status?: ControllerStatus): {
+  text: string;
+  badgeClass: string;
+} {
+  if (!status) {
+    return {
+      text: 'KEYBOARD & MOUSE',
+      badgeClass: 'kf-controller-badge',
+    };
+  }
+  if (status.gamepadConnected) {
+    const profileTitle =
+      status.gamepadProfile === 'xbox'
+        ? 'XBOX'
+        : status.gamepadProfile === 'playstation'
+          ? 'PLAYSTATION'
+          : status.gamepadProfile === 'nintendo'
+            ? 'NINTENDO'
+            : status.gamepadProfile === 'steamdeck'
+              ? 'STEAM DECK'
+              : status.gamepadProfile === 'tesla'
+                ? 'TESLA'
+                : 'GENERIC';
+    const rawName = status.gamepadName.trim();
+    const shortName =
+      rawName.length > 34 ? `${rawName.slice(0, 31)}...` : rawName;
+    const mod = status.gamepadProfile === 'tesla' ? 'tesla' : 'gamepad';
+    return {
+      text: shortName
+        ? `${profileTitle} · ${shortName}`
+        : `${profileTitle} CONTROLLER CONNECTED`,
+      badgeClass: `kf-controller-badge connected ${mod}`,
+    };
+  }
+  if (status.touchSensed) {
+    return {
+      text: status.isTeslaBrowser
+        ? 'TESLA TOUCHSCREEN ACTIVE'
+        : 'TOUCH CONTROLS SENSED',
+      badgeClass: status.isTeslaBrowser
+        ? 'kf-controller-badge tesla'
+        : 'kf-controller-badge touch',
+    };
+  }
+  return {
+    text: status.isTeslaBrowser
+      ? 'TESLA BROWSER · CONNECT GAMEPAD OR TOUCH'
+      : 'NO GAMEPAD CONNECTED · KEYBOARD & MOUSE',
+    badgeClass: status.isTeslaBrowser
+      ? 'kf-controller-badge tesla'
+      : 'kf-controller-badge',
+  };
+}
+
+function makeControllerBadgeEl(
+  meta: { text: string; badgeClass: string },
+  testId?: string,
+): HTMLElement {
+  const el = document.createElement('span');
+  el.className = meta.badgeClass;
+  if (testId) el.dataset.testid = testId;
+  const dot = document.createElement('span');
+  dot.className = 'kf-controller-dot';
+  const lbl = document.createElement('span');
+  lbl.textContent = meta.text;
+  el.append(dot, lbl);
+  return el;
+}
 
 export type ModalOverlayKind =
   | 'none'
@@ -58,6 +139,7 @@ export interface OverlaysCallbacks {
   onUseCampfire(action: 'heal' | 'ammo' | 'upgrade' | 'skill'): boolean;
   onUpdateRenderSettings(partial: Partial<RenderSettings>): void;
   onUpdateAudioSettings(partial: Partial<AudioSettings>): void;
+  onUpdateControllerSettings(partial: Partial<ControllerSettings>): void;
   onSetPackMode(mode: AssetPackMode): Promise<boolean>;
   onStartRebind(action: KeybindAction): void;
   onResetKeybinds(): void;
@@ -108,6 +190,8 @@ export class Overlays {
     packMode: AssetPackMode,
     customPackAvailable: boolean,
     rebindingAction: KeybindAction | null,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
   ): void {
     if (kind === 'none') {
       if (this.lastKind !== 'none') {
@@ -121,7 +205,7 @@ export class Overlays {
 
     this.backdrop.style.display = 'flex';
 
-    // Keep Options sliders interactive without tearing down DOM on volume drag
+    // Keep Options sliders interactive without tearing down DOM on volume/deadzone drag
     const sig = this.computeSignature(
       kind,
       state,
@@ -129,6 +213,8 @@ export class Overlays {
       packMode,
       customPackAvailable,
       rebindingAction,
+      controllerStatus,
+      prompts,
     );
     if (kind === this.lastKind && sig === this.lastSig) {
       return;
@@ -139,7 +225,7 @@ export class Overlays {
     this.backdrop.innerHTML = '';
     switch (kind) {
       case 'workbench':
-        this.buildWorkbench(state);
+        this.buildWorkbench(state, controllerStatus, prompts);
         break;
       case 'shop':
         this.buildShop(state);
@@ -148,13 +234,13 @@ export class Overlays {
         this.buildCampfire(state);
         break;
       case 'pause':
-        this.buildPause(state);
+        this.buildPause(state, controllerStatus, prompts);
         break;
       case 'options':
-        this.buildOptions(save, packMode, customPackAvailable);
+        this.buildOptions(save, packMode, customPackAvailable, controllerStatus, prompts);
         break;
       case 'keybinds':
-        this.buildKeybinds(save, rebindingAction);
+        this.buildKeybinds(save, rebindingAction, controllerStatus, prompts);
         break;
       case 'victory':
         this.buildVictory(state);
@@ -172,8 +258,20 @@ export class Overlays {
     packMode: AssetPackMode,
     customPackAvailable: boolean,
     rebindingAction: KeybindAction | null,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
   ): string {
     const p = state.player;
+    const devKey = [
+      controllerStatus?.activeDevice ?? 'keyboard',
+      controllerStatus?.gamepadConnected ? '1' : '0',
+      controllerStatus?.gamepadProfile ?? 'generic',
+      controllerStatus?.gamepadName ?? '',
+      controllerStatus?.touchSensed ? '1' : '0',
+      controllerStatus?.isTeslaBrowser ? '1' : '0',
+      prompts?.cancel ?? '',
+      prompts?.pause ?? '',
+    ].join(':');
     switch (kind) {
       case 'workbench':
         return [
@@ -188,6 +286,7 @@ export class Overlays {
           p.weapons[1]?.golden ? 'g' : 'n',
           p.weapons[1]?.mods.join(',') ?? '',
           p.backpackMods.join(','),
+          devKey,
         ].join('|');
       case 'shop':
         return [
@@ -204,9 +303,10 @@ export class Overlays {
           p.weapons[p.activeSlot]?.golden ? 'g' : 'n',
         ].join('|');
       case 'pause':
-        return [kind, state.screenMode, state.currentNodeId].join('|');
-      case 'options':
-        // Deliberately omit continuous slider floats so dragging sliders stays smooth
+        return [kind, state.screenMode, state.currentNodeId, devKey].join('|');
+      case 'options': {
+        const cs = save.controllerSettings ?? DEFAULT_CONTROLLER_SETTINGS;
+        // Deliberately omit continuous slider floats so dragging/stepping sliders stays smooth
         return [
           kind,
           save.renderSettings.targetFps,
@@ -214,9 +314,13 @@ export class Overlays {
           save.renderSettings.lightingEnabled ? '1' : '0',
           save.renderSettings.bloodEnabled ? '1' : '0',
           save.audioSettings.muted ? '1' : '0',
+          cs.vibrationEnabled ? '1' : '0',
+          cs.twinStickAutoFire ? '1' : '0',
           packMode,
           customPackAvailable ? '1' : '0',
+          devKey,
         ].join('|');
+      }
       case 'keybinds':
         return [
           kind,
@@ -225,6 +329,7 @@ export class Overlays {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([k, v]) => `${k}:${v}`)
             .join(','),
+          devKey,
         ].join('|');
       case 'victory':
       case 'gameover':
@@ -245,7 +350,11 @@ export class Overlays {
   // 1. WEAPON WORKBENCH (TAB)
   // ==========================================================================
 
-  private buildWorkbench(state: SimState): void {
+  private buildWorkbench(
+    state: SimState,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     const p = state.player;
     if (this.workbenchSlot === 1 && !p.weapons[1]) {
       this.workbenchSlot = 0;
@@ -280,6 +389,14 @@ export class Overlays {
     modal.className = 'kf-panel kf-panel-cyan kf-modal';
     modal.dataset.testid = 'workbench-modal';
 
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const closeLabel =
+      activeDevice === 'touch'
+        ? 'CLOSE'
+        : activeDevice === 'gamepad' && prompts
+          ? `CLOSE ${formatPromptTag(prompts.cancel)}`
+          : 'CLOSE [TAB / ESC]';
+
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
@@ -288,7 +405,7 @@ export class Overlays {
         <span class="kf-modal-subtitle">GOLD: ${p.gold}G · MOD LIMIT: ${inst.mods.length}/${modLimit}</span>
       </div>
     `;
-    const closeBtn = this.makeBtn('CLOSE [TAB / ESC]', 'kf-btn kf-btn-sm kf-btn-danger', () => {
+    const closeBtn = this.makeBtn(closeLabel, 'kf-btn kf-btn-sm kf-btn-danger', () => {
       this.cb.onPlayUiClick();
       this.cb.onCloseOverlay();
     });
@@ -308,11 +425,12 @@ export class Overlays {
       const slotIdx = s as 0 | 1;
       const w = p.weapons[slotIdx];
       const wDef = w ? getWeaponDef(w.uniqueId) : null;
+      const isSelected = this.workbenchSlot === slotIdx;
       const tabBtn = this.makeBtn(
         wDef
           ? `SLOT ${s + 1}: ${w!.golden ? '★ ' : ''}${wDef.name} (T${wDef.weaponTier})`
           : `SLOT ${s + 1}: EMPTY`,
-        this.workbenchSlot === slotIdx
+        isSelected
           ? 'kf-btn kf-btn-sm kf-btn-primary'
           : 'kf-btn kf-btn-sm',
         () => {
@@ -323,6 +441,11 @@ export class Overlays {
         },
       );
       tabBtn.disabled = !w;
+      tabBtn.dataset.testid = `workbench-slot-${slotIdx}`;
+      tabBtn.dataset.gpTabGroup = 'workbench-slots';
+      if (isSelected) {
+        tabBtn.dataset.gpTabActive = 'true';
+      }
       tabsRow.appendChild(tabBtn);
     }
 
@@ -708,10 +831,22 @@ export class Overlays {
   // 4. PAUSE MENU (ESC)
   // ==========================================================================
 
-  private buildPause(state: SimState): void {
+  private buildPause(
+    state: SimState,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     const modal = document.createElement('div');
     modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-sm';
     modal.dataset.testid = 'pause-modal';
+
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const resumeLabel =
+      activeDevice === 'touch'
+        ? 'RESUME'
+        : activeDevice === 'gamepad' && prompts
+          ? `RESUME ${formatPromptTag(prompts.pause)}`
+          : 'RESUME [ESC]';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
@@ -723,26 +858,36 @@ export class Overlays {
     body.style.flexDirection = 'column';
     body.style.gap = '9px';
 
-    const resumeBtn = this.makeBtn('RESUME [ESC]', 'kf-btn kf-btn-primary', () => {
+    const resumeBtn = this.makeBtn(resumeLabel, 'kf-btn kf-btn-primary', () => {
       this.cb.onPlayUiClick();
       this.cb.onResumeGame();
     });
+    resumeBtn.dataset.testid = 'pause-resume-btn';
+    resumeBtn.dataset.gpInitial = 'true';
+
     const optBtn = this.makeBtn('OPTIONS', 'kf-btn', () => {
       this.cb.onPlayUiClick();
       this.cb.onOpenOptions();
     });
-    const kbBtn = this.makeBtn('KEYBINDS', 'kf-btn', () => {
+    optBtn.dataset.testid = 'pause-options-btn';
+
+    const kbBtn = this.makeBtn('KEYBINDS & CONTROLS', 'kf-btn', () => {
       this.cb.onPlayUiClick();
       this.cb.onOpenKeybinds();
     });
+    kbBtn.dataset.testid = 'pause-keybinds-btn';
+
     const hubBtn = this.makeBtn('RETURN TO OUTPOST HUB', 'kf-btn kf-btn-gold', () => {
       this.cb.onPlayUiClick();
       this.cb.onReturnToHub();
     });
+    hubBtn.dataset.testid = 'pause-hub-btn';
+
     const titleBtn = this.makeBtn('TITLE SCREEN', 'kf-btn kf-btn-danger', () => {
       this.cb.onPlayUiClick();
       this.cb.onReturnToTitle();
     });
+    titleBtn.dataset.testid = 'pause-title-btn';
 
     body.append(resumeBtn, optBtn, kbBtn, hubBtn, titleBtn);
     modal.append(header, body);
@@ -750,16 +895,26 @@ export class Overlays {
   }
 
   // ==========================================================================
-  // 5. OPTIONS MODAL (FPS, PIXEL-SNAP, AUDIO, GRAPHICS, LIVE PACK MODE)
+  // 5. OPTIONS MODAL (FPS, PIXEL-SNAP, AUDIO, GRAPHICS, CONTROLLER & TOUCH)
   // ==========================================================================
 
   private buildOptions(
     save: SaveData,
     packMode: AssetPackMode,
     customPackAvailable: boolean,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
   ): void {
     const rs = save.renderSettings;
     const as = save.audioSettings;
+    const cs = save.controllerSettings ?? DEFAULT_CONTROLLER_SETTINGS;
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const doneLabel =
+      activeDevice === 'touch'
+        ? 'DONE'
+        : activeDevice === 'gamepad' && prompts
+          ? `DONE ${formatPromptTag(prompts.cancel)}`
+          : 'DONE [ESC]';
 
     const modal = document.createElement('div');
     modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-md';
@@ -768,7 +923,7 @@ export class Overlays {
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `<span class="kf-modal-title">${UI_LABELS.optionsTitle}</span><span class="kf-modal-subtitle">SAVED AUTOMATICALLY</span>`;
-    const closeBtn = this.makeBtn('DONE [ESC]', 'kf-btn kf-btn-sm kf-btn-primary', () => {
+    const closeBtn = this.makeBtn(doneLabel, 'kf-btn kf-btn-sm kf-btn-primary', () => {
       this.cb.onPlayUiClick();
       this.cb.onCloseOverlay();
     });
@@ -915,6 +1070,104 @@ export class Overlays {
     packBtns.append(biBtn, cuBtn);
     packRow.appendChild(packBtns);
 
+    // ---- CONTROLLER & TOUCH SECTION ----
+    const ctrlSection = document.createElement('div');
+    ctrlSection.className = 'kf-controller-section';
+    ctrlSection.dataset.testid = 'options-controller-section';
+
+    const ctrlSectionHeader = document.createElement('div');
+    ctrlSectionHeader.className = 'kf-controller-section-title';
+
+    const ctrlTitle = document.createElement('span');
+    ctrlTitle.textContent = 'CONTROLLER & TOUCH';
+
+    const statusMeta = formatControllerStatusLabel(controllerStatus);
+    const statusBadge = makeControllerBadgeEl(
+      statusMeta,
+      'options-controller-badge',
+    );
+    ctrlSectionHeader.append(ctrlTitle, statusBadge);
+
+    const deadzoneRow = this.makeSliderRow(
+      'STICK DEADZONE',
+      cs.deadzone,
+      0.08,
+      0.35,
+      0.01,
+      (v) => `${Math.round(v * 100)}%`,
+      (v) => this.cb.onUpdateControllerSettings({ deadzone: v }),
+      'opt-controller-deadzone',
+    );
+
+    const rumbleRow = this.makeOptionRow(
+      'CONTROLLER VIBRATION / RUMBLE',
+      'Haptic rumble pulses on firing, damage, explosions & boss phases',
+    );
+    const rumbleBtn = this.makeBtn(
+      cs.vibrationEnabled ? 'ON' : 'OFF',
+      cs.vibrationEnabled ? 'kf-btn kf-btn-sm kf-btn-emerald' : 'kf-btn kf-btn-sm',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onUpdateControllerSettings({
+          vibrationEnabled: !cs.vibrationEnabled,
+        });
+      },
+    );
+    rumbleBtn.dataset.testid = 'opt-controller-rumble';
+    rumbleRow.appendChild(rumbleBtn);
+
+    const autoFireRow = this.makeOptionRow(
+      'TWIN-STICK AUTO-FIRE (GAMEPAD)',
+      'Deflecting right stick fires automatically on physical gamepads (always on for Touch)',
+    );
+    const autoFireBtn = this.makeBtn(
+      cs.twinStickAutoFire ? 'ON' : 'OFF',
+      cs.twinStickAutoFire ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onUpdateControllerSettings({
+          twinStickAutoFire: !cs.twinStickAutoFire,
+        });
+      },
+    );
+    autoFireBtn.dataset.testid = 'opt-controller-autofire';
+    autoFireRow.appendChild(autoFireBtn);
+
+    const touchOpacityRow = this.makeSliderRow(
+      controllerStatus?.touchSensed
+        ? 'TOUCH STICK OPACITY'
+        : 'TOUCH STICK OPACITY (MOBILE / TESLA)',
+      cs.touchOpacity,
+      0.3,
+      1.0,
+      0.05,
+      (v) => `${Math.round(v * 100)}%`,
+      (v) => this.cb.onUpdateControllerSettings({ touchOpacity: v }),
+      'opt-touch-opacity',
+    );
+
+    const touchScaleRow = this.makeSliderRow(
+      controllerStatus?.touchSensed
+        ? 'TOUCH STICK SIZE'
+        : 'TOUCH STICK SIZE (MOBILE / TESLA)',
+      cs.touchScale,
+      0.75,
+      1.35,
+      0.05,
+      (v) => `${Math.round(v * 100)}%`,
+      (v) => this.cb.onUpdateControllerSettings({ touchScale: v }),
+      'opt-touch-scale',
+    );
+
+    ctrlSection.append(
+      ctrlSectionHeader,
+      deadzoneRow,
+      rumbleRow,
+      autoFireRow,
+      touchOpacityRow,
+      touchScaleRow,
+    );
+
     body.append(
       fpsRow,
       snapRow,
@@ -926,6 +1179,7 @@ export class Overlays {
       lightRow,
       bloodRow,
       packRow,
+      ctrlSection,
     );
     modal.append(header, body);
     this.backdrop.appendChild(modal);
@@ -951,6 +1205,7 @@ export class Overlays {
     step: number,
     format: (v: number) => string,
     onChange: (v: number) => void,
+    testId?: string,
   ): HTMLElement {
     const row = document.createElement('div');
     row.className = 'kf-option-row';
@@ -975,6 +1230,9 @@ export class Overlays {
     slider.max = String(max);
     slider.step = String(step);
     slider.value = String(value);
+    if (testId) {
+      slider.dataset.testid = testId;
+    }
     slider.addEventListener('input', () => {
       const v = Number(slider.value);
       valLabel.textContent = format(v);
@@ -987,17 +1245,30 @@ export class Overlays {
   }
 
   // ==========================================================================
-  // 6. KEYBINDS MODAL
+  // 6. KEYBINDS & CONTROLLER / TOUCH LAYOUT MODAL
   // ==========================================================================
 
-  private buildKeybinds(save: SaveData, rebindingAction: KeybindAction | null): void {
+  private buildKeybinds(
+    save: SaveData,
+    rebindingAction: KeybindAction | null,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     const modal = document.createElement('div');
     modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-md';
     modal.dataset.testid = 'keybinds-modal';
 
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
+    const doneLabel =
+      activeDevice === 'touch'
+        ? 'DONE'
+        : activeDevice === 'gamepad' && prompts
+          ? `DONE ${formatPromptTag(prompts.cancel)}`
+          : 'DONE [ESC]';
+
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
-    header.innerHTML = `<span class="kf-modal-title">KEYBINDS & CONTROLS</span><span class="kf-modal-subtitle">MOUSE LMB FIRE · RMB ABILITY · FULL GAMEPAD SUPPORT</span>`;
+    header.innerHTML = `<span class="kf-modal-title">KEYBINDS & CONTROLS</span><span class="kf-modal-subtitle">KEYBOARD · MOUSE · GAMEPAD · TOUCH</span>`;
 
     const rightHdr = document.createElement('div');
     rightHdr.style.display = 'flex';
@@ -1006,10 +1277,12 @@ export class Overlays {
       this.cb.onPlayUiClick();
       this.cb.onResetKeybinds();
     });
-    const closeBtn = this.makeBtn('DONE [ESC]', 'kf-btn kf-btn-sm kf-btn-primary', () => {
+    resetBtn.dataset.testid = 'keybinds-reset-btn';
+    const closeBtn = this.makeBtn(doneLabel, 'kf-btn kf-btn-sm kf-btn-primary', () => {
       this.cb.onPlayUiClick();
       this.cb.onCloseOverlay();
     });
+    closeBtn.dataset.testid = 'keybinds-close-btn';
     rightHdr.append(resetBtn, closeBtn);
     header.appendChild(rightHdr);
 
@@ -1043,6 +1316,79 @@ export class Overlays {
       row.append(lbl, btn, hint);
       body.appendChild(row);
     }
+
+    // ---- CONTROLLER & TOUCH LAYOUT REFERENCE PANEL ----
+    const profile = controllerStatus?.gamepadProfile ?? 'xbox';
+    const glyphs = getGamepadGlyphs(profile);
+    const statusMeta = formatControllerStatusLabel(controllerStatus);
+    const familyLabel =
+      profile === 'xbox'
+        ? 'XBOX / XINPUT LAYOUT'
+        : profile === 'playstation'
+          ? 'PLAYSTATION (DUALSENSE / DUALSHOCK) LAYOUT'
+          : profile === 'nintendo'
+            ? 'NINTENDO SWITCH PRO / JOY-CON LAYOUT'
+            : profile === 'steamdeck'
+              ? 'STEAM DECK LAYOUT'
+              : profile === 'tesla'
+                ? 'TESLA CONTROLLER LAYOUT'
+                : 'STANDARD GAMEPAD LAYOUT';
+
+    const refCard = document.createElement('div');
+    refCard.className = 'kf-controller-section';
+    refCard.dataset.testid = 'keybinds-controller-layout';
+
+    const refTop = document.createElement('div');
+    refTop.className = 'kf-controller-section-title';
+    refTop.innerHTML = `
+      <div>
+        <div>CONTROLLER & TOUCH LAYOUT</div>
+        <div style="font-size:10px;color:var(--kf-text-dim);letter-spacing:0.06em;font-weight:600;margin-top:2px;">${familyLabel}</div>
+      </div>
+    `;
+    const refBadge = makeControllerBadgeEl(statusMeta);
+    refTop.appendChild(refBadge);
+
+    const gpRows: Array<[string, string]> = [
+      ['MOVE / MENU NAV', `${glyphs.move} / D-PAD`],
+      ['TWIN-STICK AIM / SCROLL', glyphs.aim],
+      ['FIRE WEAPON', glyphs.fire],
+      ['OUTCAST ABILITY', glyphs.ability],
+      ['OUTCAST POWER', glyphs.power],
+      ['SWAP WEAPON', glyphs.swap],
+      ['INTERACT / CONFIRM', `${glyphs.interact} (${glyphs.confirm})`],
+      ['VENT HEAT / BACK', `${glyphs.vent} (${glyphs.cancel})`],
+      ['WORKBENCH', glyphs.workbench],
+      ['PAUSE / MENU', glyphs.pause],
+      ['SWITCH TABS / SLOTS', `${glyphs.tabPrev} / ${glyphs.tabNext}`],
+    ];
+
+    const gpGrid = document.createElement('div');
+    gpGrid.className = 'kf-controller-grid';
+    for (const [actionLabel, glyphLabel] of gpRows) {
+      const cell = document.createElement('div');
+      cell.className = 'kf-controller-map-row';
+      cell.innerHTML = `
+        <span style="color:var(--kf-text-dim);">${actionLabel}</span>
+        <span class="kf-glyph-chip">${glyphLabel}</span>
+      `;
+      gpGrid.appendChild(cell);
+    }
+
+    const touchRef = document.createElement('div');
+    touchRef.style.marginTop = '8px';
+    touchRef.style.padding = '7px 9px';
+    touchRef.style.background = 'var(--kf-bg-1)';
+    touchRef.style.borderLeft = '3px solid var(--kf-gold)';
+    touchRef.style.fontSize = '10px';
+    touchRef.style.color = 'var(--kf-text-dim)';
+    touchRef.innerHTML = `
+      <div style="font-weight:800;color:var(--kf-amber);letter-spacing:0.08em;margin-bottom:3px;">TOUCH DUAL-STICK CONTROLS (MOBILE / TABLET / TESLA)</div>
+      <div><strong>LEFT STICK:</strong> Move &nbsp;·&nbsp; <strong>RIGHT STICK:</strong> Aim &amp; Auto-Fire &nbsp;·&nbsp; <strong>ARC BUTTONS:</strong> Ability, Power, Swap, Use/Vent. Translucent controls appear automatically only when touch is sensed during active play.</div>
+    `;
+
+    refCard.append(refTop, gpGrid, touchRef);
+    body.appendChild(refCard);
 
     modal.append(header, body);
     this.backdrop.appendChild(modal);

@@ -6,7 +6,14 @@
 // layout solver guaranteeing zero node-node overlap across all 45 nodes,
 // tactical node preview sidebar, and click-to-deploy via Bifrost.
 
-import type { ActId, BiomeNodeDef, NodeType, SimState } from '../contracts/index.js';
+import type {
+  ActId,
+  BiomeNodeDef,
+  ControllerStatus,
+  NodeType,
+  SimState,
+} from '../contracts/index.js';
+import type { GamepadGlyphSet } from '../input/index.js';
 import {
   ACT_TITLES,
   OVERWORLD_NODES,
@@ -219,6 +226,13 @@ function computeOverworldLayout(): OverworldLayout {
   return cachedOverworldLayout;
 }
 
+function formatPromptTag(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
+  return `[${trimmed}]`;
+}
+
 export class OverworldUi {
   private readonly root: HTMLElement;
   private readonly cb: OverworldUiCallbacks;
@@ -256,9 +270,14 @@ export class OverworldUi {
     }
   }
 
-  public render(state: SimState): void {
+  public render(
+    state: SimState,
+    controllerStatus?: ControllerStatus,
+    prompts?: GamepadGlyphSet,
+  ): void {
     if (!this.visible) return;
 
+    const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
     const sig = [
       state.currentNodeId,
       state.clearedNodeIds.join(','),
@@ -267,6 +286,10 @@ export class OverworldUi {
       state.player.gold,
       this.selectedNodeId,
       String(this.actFilter),
+      activeDevice,
+      controllerStatus?.gamepadProfile ?? 'generic',
+      prompts?.workbench ?? '',
+      prompts?.cancel ?? '',
     ].join('|');
 
     if (sig === this.lastSig) return;
@@ -303,11 +326,18 @@ export class OverworldUi {
       { val: 3, label: 'ACT III KRUNKED' },
     ];
     for (const tab of actTabs) {
+      const isSelected = this.actFilter === tab.val;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className =
-        this.actFilter === tab.val ? 'kf-btn kf-btn-sm kf-btn-primary' : 'kf-btn kf-btn-sm';
+      btn.className = isSelected
+        ? 'kf-btn kf-btn-sm kf-btn-primary'
+        : 'kf-btn kf-btn-sm';
       btn.textContent = tab.label;
+      btn.dataset.testid = `overworld-act-${tab.val}`;
+      btn.dataset.gpTabGroup = 'overworld-acts';
+      if (isSelected) {
+        btn.dataset.gpTabActive = 'true';
+      }
       btn.addEventListener('click', () => {
         this.cb.onPlayUiClick();
         this.actFilter = tab.val;
@@ -321,19 +351,30 @@ export class OverworldUi {
     actionsRight.style.display = 'flex';
     actionsRight.style.gap = '6px';
 
+    const benchLabel =
+      activeDevice === 'touch'
+        ? 'WORKBENCH'
+        : prompts
+          ? `${formatPromptTag(prompts.workbench)} WORKBENCH`
+          : '[TAB] WORKBENCH';
     const benchBtn = document.createElement('button');
     benchBtn.type = 'button';
     benchBtn.className = 'kf-btn kf-btn-sm';
-    benchBtn.textContent = '[TAB] WORKBENCH';
+    benchBtn.textContent = benchLabel;
+    benchBtn.dataset.testid = 'overworld-workbench-btn';
     benchBtn.addEventListener('click', () => {
       this.cb.onPlayUiClick();
       this.cb.onOpenWorkbench();
     });
 
+    const hubLabel =
+      activeDevice === 'gamepad' && prompts
+        ? `RETURN TO HUB ${formatPromptTag(prompts.cancel)}`
+        : 'RETURN TO HUB';
     const hubBtn = document.createElement('button');
     hubBtn.type = 'button';
     hubBtn.className = 'kf-btn kf-btn-sm kf-btn-gold';
-    hubBtn.textContent = 'RETURN TO HUB';
+    hubBtn.textContent = hubLabel;
     hubBtn.dataset.testid = 'overworld-return-hub';
     hubBtn.addEventListener('click', () => {
       this.cb.onPlayUiClick();

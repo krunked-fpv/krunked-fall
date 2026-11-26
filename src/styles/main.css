@@ -35,6 +35,9 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   background: var(--kf-bg-0);
   color: var(--kf-text);
   font-family: var(--kf-font);
@@ -48,7 +51,9 @@ body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  touch-action: none;
   background: #05070b;
 }
 
@@ -58,6 +63,7 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  touch-action: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
@@ -1553,5 +1559,1170 @@ body {
   .kf-overworld-main,
   .kf-workbench-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   MOBILE & TESLA TOUCH SCROLL CONTAINERS
+   ========================================================================== */
+
+.kf-scroll,
+.kf-modal-body,
+.kf-overworld-map-wrap,
+.kf-overworld-sidebar,
+.kf-skill-layout,
+.kf-drawer-body {
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ==========================================================================
+   TRANSLUCENT DUAL-STICK VIRTUAL TOUCH CONTROLS
+   ========================================================================== */
+
+.kf-touch-layer {
+  --kf-touch-opacity: 0.72;
+  --kf-touch-scale: 1;
+  --kf-stick-size: 118px;
+  --kf-s: calc(var(--kf-stick-size) * var(--kf-touch-scale));
+
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 35;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Left Movement Thumb Zone */
+.kf-touch-stick-zone {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kf-touch-stick-zone-left {
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  width: calc(var(--kf-s) * 1.38);
+  height: calc(var(--kf-s) * 1.38);
+}
+
+/* Right Cluster (Aim+Fire Stick + Translucent Action Arc) */
+.kf-touch-right-cluster {
+  position: absolute;
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  width: calc(var(--kf-s) * 2.04);
+  height: calc(var(--kf-s) * 1.94);
+  pointer-events: none;
+}
+
+.kf-touch-stick-zone-right {
+  right: 0;
+  bottom: 0;
+  width: calc(var(--kf-s) * 1.36);
+  height: calc(var(--kf-s) * 1.32);
+}
+
+/* Translucent Frosted-Glass Stick Ring */
+.kf-touch-stick-base {
+  position: relative;
+  width: var(--kf-s);
+  height: var(--kf-s);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  touch-action: none;
+  opacity: var(--kf-touch-opacity);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  will-change: transform;
+  transition:
+    transform 120ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 90ms linear,
+    box-shadow 90ms linear,
+    opacity 90ms linear,
+    background 90ms linear;
+}
+
+.kf-touch-stick-left {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(10, 18, 28, 0.2) 0%,
+    rgba(10, 18, 28, 0.44) 68%,
+    rgba(57, 214, 255, 0.16) 100%
+  );
+  border: 2px solid rgba(57, 214, 255, 0.58);
+  box-shadow:
+    inset 0 0 18px rgba(57, 214, 255, 0.18),
+    0 0 14px rgba(5, 8, 14, 0.55);
+}
+
+.kf-touch-stick-right {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(20, 14, 16, 0.2) 0%,
+    rgba(20, 13, 16, 0.44) 68%,
+    rgba(255, 155, 53, 0.18) 100%
+  );
+  border: 2px solid rgba(255, 155, 53, 0.6);
+  box-shadow:
+    inset 0 0 18px rgba(255, 155, 53, 0.18),
+    0 0 14px rgba(5, 8, 14, 0.55);
+}
+
+.kf-touch-stick-base.active {
+  transition:
+    border-color 75ms linear,
+    box-shadow 75ms linear,
+    opacity 75ms linear,
+    background 75ms linear;
+  opacity: min(1, calc(var(--kf-touch-opacity) + 0.22));
+}
+
+.kf-touch-stick-left.active {
+  border-color: rgba(139, 232, 255, 0.94);
+  box-shadow:
+    inset 0 0 22px rgba(57, 214, 255, 0.3),
+    0 0 20px rgba(57, 214, 255, 0.36);
+}
+
+.kf-touch-stick-right.active {
+  border-color: rgba(255, 209, 102, 0.92);
+  box-shadow:
+    inset 0 0 22px rgba(255, 155, 53, 0.3),
+    0 0 20px rgba(255, 155, 53, 0.36);
+}
+
+.kf-touch-stick-right.firing {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(38, 10, 16, 0.26) 0%,
+    rgba(48, 10, 18, 0.5) 66%,
+    rgba(255, 58, 78, 0.34) 100%
+  );
+  border-color: var(--kf-crimson);
+  box-shadow:
+    inset 0 0 26px rgba(255, 58, 78, 0.44),
+    0 0 24px rgba(255, 58, 78, 0.62),
+    0 0 8px rgba(255, 209, 102, 0.55);
+}
+
+/* Cardinal Rune Ticks & Auto-Fire Threshold Ring */
+.kf-touch-stick-ticks {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+
+.kf-touch-stick-left .kf-touch-stick-ticks {
+  border-color: rgba(57, 214, 255, 0.24);
+}
+
+.kf-touch-stick-right .kf-touch-stick-ticks {
+  border-color: rgba(255, 155, 53, 0.28);
+}
+
+.kf-touch-stick-right.firing .kf-touch-stick-ticks {
+  border-color: rgba(255, 58, 78, 0.58);
+}
+
+.kf-touch-tick {
+  position: absolute;
+  background: rgba(57, 214, 255, 0.72);
+  pointer-events: none;
+}
+
+.kf-touch-stick-right .kf-touch-tick {
+  background: rgba(255, 184, 84, 0.78);
+}
+
+.kf-touch-stick-right.firing .kf-touch-tick {
+  background: #ff5b6c;
+  box-shadow: 0 0 6px rgba(255, 58, 78, 0.85);
+}
+
+.kf-touch-tick-n {
+  top: -2px;
+  left: 50%;
+  width: 2px;
+  height: 8px;
+  transform: translateX(-50%);
+}
+
+.kf-touch-tick-s {
+  bottom: -2px;
+  left: 50%;
+  width: 2px;
+  height: 8px;
+  transform: translateX(-50%);
+}
+
+.kf-touch-tick-e {
+  right: -2px;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.kf-touch-tick-w {
+  left: -2px;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.kf-touch-stick-threshold {
+  position: absolute;
+  width: 36%;
+  height: 36%;
+  border-radius: 50%;
+  border: 1px solid rgba(57, 214, 255, 0.22);
+  pointer-events: none;
+}
+
+.kf-touch-stick-right .kf-touch-stick-threshold {
+  border: 1px dashed rgba(255, 155, 53, 0.42);
+}
+
+.kf-touch-stick-right.firing .kf-touch-stick-threshold {
+  border-color: rgba(255, 58, 78, 0.78);
+  box-shadow: 0 0 10px rgba(255, 58, 78, 0.45);
+}
+
+.kf-touch-stick-caption {
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: rgba(234, 242, 251, 0.56);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+/* Glowing Translucent Thumb Knob */
+.kf-touch-stick-knob {
+  position: relative;
+  width: 44%;
+  height: 44%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 110ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 80ms linear,
+    box-shadow 80ms linear,
+    background 80ms linear;
+}
+
+.kf-touch-stick-base.active .kf-touch-stick-knob {
+  transition:
+    border-color 70ms linear,
+    box-shadow 70ms linear,
+    background 70ms linear;
+}
+
+.kf-touch-stick-knob-left {
+  background: radial-gradient(
+    circle at 38% 35%,
+    rgba(165, 242, 255, 0.62) 0%,
+    rgba(57, 214, 255, 0.34) 55%,
+    rgba(12, 34, 52, 0.62) 100%
+  );
+  border: 2px solid rgba(139, 232, 255, 0.88);
+  box-shadow:
+    0 0 14px rgba(57, 214, 255, 0.45),
+    inset 0 1px 4px rgba(255, 255, 255, 0.36);
+}
+
+.kf-touch-stick-knob-right {
+  background: radial-gradient(
+    circle at 38% 35%,
+    rgba(255, 226, 152, 0.64) 0%,
+    rgba(255, 155, 53, 0.36) 55%,
+    rgba(56, 22, 12, 0.64) 100%
+  );
+  border: 2px solid rgba(255, 209, 102, 0.88);
+  box-shadow:
+    0 0 14px rgba(255, 155, 53, 0.45),
+    inset 0 1px 4px rgba(255, 255, 255, 0.34);
+}
+
+.kf-touch-stick-right.firing .kf-touch-stick-knob-right {
+  background: radial-gradient(
+    circle at 38% 35%,
+    rgba(255, 220, 175, 0.78) 0%,
+    rgba(255, 58, 78, 0.56) 55%,
+    rgba(80, 12, 22, 0.72) 100%
+  );
+  border-color: #ff7a88;
+  box-shadow:
+    0 0 18px rgba(255, 58, 78, 0.82),
+    inset 0 0 10px rgba(255, 209, 102, 0.55);
+}
+
+.kf-touch-stick-knob-core {
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.65);
+}
+
+/* Translucent Action Arc Buttons Around Right Stick */
+.kf-touch-btn {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  border-radius: 50%;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font-family: var(--kf-font);
+  color: var(--kf-text);
+  cursor: pointer;
+  opacity: var(--kf-touch-opacity);
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(18, 28, 42, 0.46) 0%,
+    rgba(10, 16, 26, 0.66) 100%
+  );
+  border: 2px solid rgba(110, 146, 186, 0.56);
+  box-shadow:
+    inset 0 0 12px rgba(57, 214, 255, 0.14),
+    0 2px 10px rgba(4, 7, 12, 0.6);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition:
+    transform 75ms ease-out,
+    border-color 90ms linear,
+    box-shadow 90ms linear,
+    opacity 90ms linear,
+    background 90ms linear;
+}
+
+.kf-touch-btn:focus {
+  outline: none;
+}
+
+.kf-touch-btn.pressed {
+  transform: scale(0.92);
+  opacity: min(1, calc(var(--kf-touch-opacity) + 0.28));
+}
+
+.kf-touch-btn.cooling {
+  opacity: calc(var(--kf-touch-opacity) * 0.68);
+  border-color: rgba(88, 108, 134, 0.48);
+}
+
+.kf-touch-btn-label {
+  font-size: clamp(9px, calc(var(--kf-s) * 0.095), 12px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+}
+
+.kf-touch-btn-sub {
+  font-size: clamp(8px, calc(var(--kf-s) * 0.082), 10px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  color: rgba(234, 242, 251, 0.85);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+}
+
+/* ABILITY — Lower-Left of Right Stick (Cyan Translucent) */
+.kf-touch-btn-ability {
+  width: calc(var(--kf-s) * 0.52);
+  height: calc(var(--kf-s) * 0.52);
+  right: calc(var(--kf-s) * 1.48);
+  bottom: calc(var(--kf-s) * 0.18);
+  border-color: rgba(57, 214, 255, 0.68);
+  color: #dff8ff;
+}
+
+.kf-touch-btn-ability.ready,
+.kf-touch-btn-ability.active {
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(22, 68, 94, 0.56) 0%,
+    rgba(10, 28, 44, 0.72) 100%
+  );
+  border-color: var(--kf-cyan);
+  box-shadow:
+    inset 0 0 14px rgba(57, 214, 255, 0.3),
+    0 0 14px rgba(57, 214, 255, 0.34);
+}
+
+.kf-touch-btn-ability.ready .kf-touch-btn-sub {
+  color: var(--kf-cyan);
+}
+
+/* POWER — Mid-Arc Left of Right Stick (Gold/Amber + Conic Charge Ring) */
+.kf-touch-btn-power {
+  --kf-pwr-pct: 0%;
+  width: calc(var(--kf-s) * 0.54);
+  height: calc(var(--kf-s) * 0.54);
+  right: calc(var(--kf-s) * 1.38);
+  bottom: calc(var(--kf-s) * 0.82);
+  border-color: rgba(255, 155, 53, 0.62);
+  color: #fff2d6;
+}
+
+.kf-touch-btn-power::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  padding: 3px;
+  background: conic-gradient(
+    var(--kf-amber) var(--kf-pwr-pct),
+    rgba(255, 155, 53, 0.14) 0
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.kf-touch-btn-power.ready {
+  opacity: min(1, calc(var(--kf-touch-opacity) + 0.24));
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(96, 56, 14, 0.66) 0%,
+    rgba(46, 26, 8, 0.78) 100%
+  );
+  border-color: var(--kf-amber);
+  box-shadow:
+    inset 0 0 16px rgba(255, 209, 102, 0.42),
+    0 0 18px rgba(255, 155, 53, 0.68);
+  animation: kf-touch-ready-pulse 1.35s ease-in-out infinite;
+}
+
+.kf-touch-btn-power.ready .kf-touch-btn-sub {
+  color: var(--kf-amber);
+}
+
+.kf-touch-btn-power.active {
+  border-color: var(--kf-emerald);
+  box-shadow:
+    inset 0 0 16px rgba(88, 245, 154, 0.36),
+    0 0 18px rgba(88, 245, 154, 0.6);
+}
+
+/* USE / VENT — Upper-Left Arc Above Right Stick (Contextual Highlight) */
+.kf-touch-btn-interact {
+  width: calc(var(--kf-s) * 0.5);
+  height: calc(var(--kf-s) * 0.5);
+  right: calc(var(--kf-s) * 0.9);
+  bottom: calc(var(--kf-s) * 1.32);
+  border-color: rgba(114, 150, 186, 0.54);
+}
+
+.kf-touch-btn-interact.highlight {
+  opacity: min(1, calc(var(--kf-touch-opacity) + 0.24));
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(16, 74, 52, 0.66) 0%,
+    rgba(10, 38, 28, 0.78) 100%
+  );
+  border-color: var(--kf-emerald);
+  color: #e6fff2;
+  box-shadow:
+    inset 0 0 14px rgba(88, 245, 154, 0.34),
+    0 0 16px rgba(88, 245, 154, 0.56);
+}
+
+.kf-touch-btn-interact.highlight .kf-touch-btn-sub {
+  color: var(--kf-emerald);
+}
+
+.kf-touch-btn-interact.highlight.vent-mode {
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(104, 34, 18, 0.68) 0%,
+    rgba(56, 14, 14, 0.8) 100%
+  );
+  border-color: var(--kf-crimson);
+  color: #ffe3e6;
+  box-shadow:
+    inset 0 0 14px rgba(255, 58, 78, 0.42),
+    0 0 16px rgba(255, 58, 78, 0.62);
+}
+
+.kf-touch-btn-interact.highlight.vent-mode .kf-touch-btn-sub {
+  color: var(--kf-amber);
+}
+
+/* SWAP — Compact Top-Right Arc Above Right Stick */
+.kf-touch-btn-swap {
+  width: calc(var(--kf-s) * 0.44);
+  height: calc(var(--kf-s) * 0.44);
+  right: calc(var(--kf-s) * 0.3);
+  bottom: calc(var(--kf-s) * 1.4);
+  border-color: rgba(192, 116, 255, 0.56);
+}
+
+.kf-touch-btn-swap.ready {
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(46, 24, 72, 0.58) 0%,
+    rgba(22, 14, 36, 0.74) 100%
+  );
+  border-color: rgba(192, 116, 255, 0.85);
+  box-shadow:
+    inset 0 0 12px rgba(192, 116, 255, 0.26),
+    0 0 12px rgba(192, 116, 255, 0.34);
+}
+
+.kf-touch-btn-swap .kf-touch-btn-sub {
+  color: #e4c0ff;
+}
+
+@keyframes kf-touch-ready-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 14px rgba(255, 209, 102, 0.36),
+      0 0 14px rgba(255, 155, 53, 0.55);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 20px rgba(255, 209, 102, 0.62),
+      0 0 24px rgba(255, 209, 102, 0.88);
+  }
+}
+
+/* ==========================================================================
+   TOUCH-ACTIVE HUD & HUB REPOSITIONING (ZERO STICK OVERLAP)
+   ========================================================================== */
+
+#app.kf-touch-active .kf-hud-bl {
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(316px, calc(100vw - 380px));
+  min-width: 244px;
+  gap: 4px;
+}
+
+#app.kf-touch-active .kf-hud-bl .kf-weapon-card {
+  padding: 5px 7px;
+  gap: 3px;
+}
+
+#app.kf-touch-active .kf-hud-bl .kf-ammo-strip {
+  padding: 3px 4px;
+  gap: 2px;
+}
+
+#app.kf-touch-active .kf-hud-bl .kf-ammo-cell {
+  padding: 1px 2px;
+}
+
+#app.kf-touch-active .kf-hud-bc {
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  max-width: min(420px, calc(100vw - 360px));
+}
+
+#app.kf-touch-active .kf-hud-tr .kf-btn {
+  min-height: 36px;
+  min-width: 78px;
+  padding: 6px 11px;
+  font-size: 11px;
+}
+
+#app.kf-touch-active .kf-hub-top {
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  right: calc(10px + env(safe-area-inset-right, 0px));
+}
+
+#app.kf-touch-active .kf-hub-top .kf-btn {
+  min-height: 36px;
+  padding: 6px 11px;
+}
+
+#app.kf-touch-active .kf-hub-dock {
+  top: calc(74px + env(safe-area-inset-top, 0px));
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  white-space: nowrap;
+  gap: 6px;
+  padding: 6px 8px;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+#app.kf-touch-active .kf-hub-dock .kf-btn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 5px 10px;
+}
+
+#app.kf-touch-active .kf-hub-station-prompt {
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  max-width: min(380px, calc(100vw - 360px));
+}
+
+/* ==========================================================================
+   GAMEPAD NAVIGATION FOCUS, CONTROLLER TOAST, BADGES & STICK AIM RETICLE
+   ========================================================================== */
+
+.kf-gp-focus {
+  outline: 2px solid var(--kf-cyan) !important;
+  outline-offset: 2px;
+  border-color: var(--kf-amber) !important;
+  box-shadow:
+    0 0 0 2px rgba(8, 11, 17, 0.92),
+    0 0 14px rgba(57, 214, 255, 0.78),
+    inset 0 0 10px rgba(57, 214, 255, 0.24) !important;
+  z-index: 12;
+  animation: kf-gp-focus-pulse 1.15s ease-in-out infinite;
+}
+
+input[type='range'].kf-gp-focus {
+  border-radius: 3px;
+  accent-color: var(--kf-amber);
+  background: rgba(57, 214, 255, 0.16);
+}
+
+@keyframes kf-gp-focus-pulse {
+  0%,
+  100% {
+    outline-color: var(--kf-cyan);
+    box-shadow:
+      0 0 0 2px rgba(8, 11, 17, 0.92),
+      0 0 12px rgba(57, 214, 255, 0.72),
+      inset 0 0 8px rgba(57, 214, 255, 0.2);
+  }
+  50% {
+    outline-color: var(--kf-amber);
+    box-shadow:
+      0 0 0 2px rgba(8, 11, 17, 0.92),
+      0 0 18px rgba(255, 209, 102, 0.85),
+      inset 0 0 12px rgba(255, 155, 53, 0.26);
+  }
+}
+
+/* Controller Connect / Disconnect Toast */
+.kf-controller-toast {
+  position: fixed;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  z-index: 110;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: rgba(10, 16, 26, 0.94);
+  border: 2px solid var(--kf-cyan);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.65),
+    0 0 14px rgba(57, 214, 255, 0.35),
+    inset 0 0 0 1px rgba(57, 214, 255, 0.2);
+  color: #f0f9ff;
+  font-family: var(--kf-font);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+  animation: kf-toast-in 180ms ease-out;
+}
+
+.kf-controller-toast.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-14px);
+}
+
+.kf-controller-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.kf-controller-toast.connected {
+  border-color: var(--kf-emerald);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.65),
+    0 0 14px rgba(88, 245, 154, 0.36);
+}
+
+.kf-controller-toast.disconnected {
+  border-color: var(--kf-gold);
+  color: var(--kf-amber);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.65),
+    0 0 14px rgba(255, 155, 53, 0.36);
+}
+
+.kf-controller-toast-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--kf-cyan);
+  box-shadow: 0 0 8px var(--kf-cyan);
+  flex: 0 0 auto;
+}
+
+.kf-controller-toast.connected .kf-controller-toast-dot {
+  background: var(--kf-emerald);
+  box-shadow: 0 0 8px var(--kf-emerald);
+}
+
+.kf-controller-toast.disconnected .kf-controller-toast-dot {
+  background: var(--kf-gold);
+  box-shadow: 0 0 8px var(--kf-gold);
+}
+
+@keyframes kf-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Controller Status Badge (Title / Options / Keybinds) */
+.kf-controller-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  font-family: var(--kf-font);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(14, 22, 34, 0.88);
+  border: 1px solid var(--kf-border-bright);
+  color: var(--kf-text-dim);
+}
+
+.kf-controller-badge.connected,
+.kf-controller-badge.gamepad {
+  border-color: var(--kf-cyan);
+  color: #dff8ff;
+  background: rgba(14, 42, 62, 0.82);
+  box-shadow: 0 0 10px rgba(57, 214, 255, 0.22);
+}
+
+.kf-controller-badge.touch {
+  border-color: var(--kf-gold);
+  color: var(--kf-amber);
+  background: rgba(54, 34, 12, 0.82);
+}
+
+.kf-controller-badge.tesla {
+  border-color: var(--kf-rune);
+  color: #ead0ff;
+  background: rgba(44, 18, 66, 0.84);
+}
+
+.kf-controller-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kf-text-muted);
+  flex: 0 0 auto;
+}
+
+.kf-controller-badge.connected .kf-controller-dot,
+.kf-controller-badge.gamepad .kf-controller-dot {
+  background: var(--kf-emerald);
+  box-shadow: 0 0 7px var(--kf-emerald);
+}
+
+.kf-controller-badge.touch .kf-controller-dot {
+  background: var(--kf-amber);
+  box-shadow: 0 0 7px var(--kf-amber);
+}
+
+.kf-controller-badge.tesla .kf-controller-dot {
+  background: var(--kf-rune);
+  box-shadow: 0 0 7px var(--kf-rune);
+}
+
+/* Twin-Stick / Touch World-Projected Aim Reticle */
+.kf-crosshair.kf-crosshair-stick {
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 50%;
+  border: 2px dashed currentColor;
+  box-shadow: 0 0 10px rgba(57, 214, 255, 0.45);
+}
+
+.kf-crosshair.kf-crosshair-stick::before {
+  left: 11px;
+  top: -4px;
+  width: 2px;
+  height: 32px;
+  opacity: 0.72;
+}
+
+.kf-crosshair.kf-crosshair-stick::after {
+  top: 11px;
+  left: -4px;
+  width: 32px;
+  height: 2px;
+  opacity: 0.72;
+}
+
+.kf-crosshair.kf-crosshair-stick .kf-crosshair-core {
+  left: 9px;
+  top: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.kf-aim-reticle {
+  position: fixed;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 50%;
+  border: 2px solid var(--kf-amber);
+  box-shadow:
+    0 0 12px rgba(255, 155, 53, 0.55),
+    inset 0 0 6px rgba(255, 209, 102, 0.35);
+  pointer-events: none;
+  z-index: 95;
+  display: none;
+}
+
+.kf-aim-reticle.visible {
+  display: block;
+}
+
+.kf-aim-reticle.firing {
+  border-color: var(--kf-crimson);
+  box-shadow:
+    0 0 14px rgba(255, 58, 78, 0.78),
+    inset 0 0 8px rgba(255, 209, 102, 0.5);
+}
+
+.kf-aim-reticle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: currentColor;
+}
+
+/* Controller Settings & Adaptive Layout Reference Panels (Options / Keybinds) */
+.kf-controller-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 2px solid var(--kf-border-bright);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kf-controller-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--kf-cyan);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.kf-controller-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.kf-controller-map-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--kf-bg-1);
+  border: 1px solid var(--kf-border);
+  font-size: 11px;
+}
+
+.kf-glyph-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  background: rgba(16, 50, 71, 0.8);
+  border: 1px solid var(--kf-cyan);
+  color: #eef9ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   RESPONSIVE TOUCH SIZING (PHONES, TABLETS, TESLA 16:9 SCREENS)
+   ========================================================================== */
+
+/* Tablets & medium touch screens */
+@media (max-width: 1100px) {
+  .kf-touch-layer {
+    --kf-stick-size: 110px;
+  }
+}
+
+/* Landscape mobile phones (e.g. 932x430, 844x390) */
+@media (max-height: 520px) {
+  .kf-title-screen {
+    padding: 8px 16px;
+    gap: 6px;
+    overflow-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kf-title-header {
+    margin-top: 0;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .kf-title-rune-strip {
+    padding: 2px 10px;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+  }
+
+  .kf-title-logo {
+    font-size: clamp(24px, 4.2vw, 34px);
+    padding: 2px 18px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    line-height: 1.05;
+  }
+
+  .kf-title-subtitle {
+    padding: 2px 12px;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+  }
+
+  .kf-title-header .kf-controller-badge {
+    padding: 2px 8px;
+    font-size: 9px;
+  }
+
+  .kf-title-menu-box {
+    width: min(460px, 92vw);
+    padding: 8px 12px;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .kf-title-menu-box .kf-btn {
+    padding: 5px 10px;
+    font-size: 11px;
+  }
+
+  .kf-title-menu-box .kf-btn-sm {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+
+  .kf-title-btn-row,
+  .kf-title-pack-actions {
+    gap: 6px;
+  }
+
+  .kf-title-pack-bar {
+    padding: 6px 8px;
+    gap: 5px;
+  }
+
+  .kf-title-footer {
+    padding: 4px 10px;
+    font-size: 9.5px;
+    gap: 6px 12px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .kf-modal-backdrop {
+    padding: 8px;
+  }
+
+  .kf-modal {
+    max-height: 94vh;
+    max-height: 94dvh;
+  }
+
+  .kf-modal-header {
+    padding: 7px 12px;
+  }
+
+  .kf-modal-body {
+    padding: 10px 12px;
+  }
+
+  .kf-modal-footer {
+    padding: 7px 12px;
+  }
+
+  .kf-touch-layer {
+    --kf-stick-size: 98px;
+  }
+
+  .kf-touch-stick-zone-left {
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .kf-touch-right-cluster {
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #app.kf-touch-active .kf-hud-tl {
+    top: 8px;
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    width: 232px;
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  #app.kf-touch-active .kf-hud-tr {
+    top: 8px;
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    gap: 4px;
+  }
+
+  #app.kf-touch-active .kf-hud-tc {
+    top: 8px;
+    width: min(350px, 38vw);
+  }
+
+  #app.kf-touch-active .kf-hud-bl {
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    width: min(296px, calc(100vw - 360px));
+  }
+
+  #app.kf-touch-active .kf-hud-bc {
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #app.kf-touch-active .kf-hub-dock {
+    top: calc(64px + env(safe-area-inset-top, 0px));
+  }
+}
+
+/* Very narrow or compact mobile viewports */
+@media (max-width: 760px), (max-height: 390px) {
+  .kf-touch-layer {
+    --kf-stick-size: 86px;
+  }
+
+  #app.kf-touch-active .kf-hud-bl {
+    width: min(256px, calc(100vw - 310px));
+    min-width: 204px;
+  }
+
+  .kf-controller-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Portrait phones: move weapon cards below vitals so bottom belongs to sticks */
+@media (max-width: 640px) and (orientation: portrait) {
+  .kf-touch-layer {
+    --kf-stick-size: 96px;
+  }
+
+  #app.kf-touch-active .kf-hud-bl {
+    top: calc(106px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    transform: none;
+    width: min(310px, calc(100vw - 20px));
+  }
+
+  #app.kf-touch-active .kf-hud-bc {
+    bottom: calc(210px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 24px);
+  }
+
+  #app.kf-touch-active .kf-hub-station-prompt {
+    bottom: calc(210px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* Tesla & Large 16:9 Touch Displays */
+@media (min-width: 1200px) and (min-height: 680px) {
+  .kf-touch-layer {
+    --kf-stick-size: 124px;
+  }
+
+  .kf-touch-stick-zone-left {
+    left: calc(22px + env(safe-area-inset-left, 0px));
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .kf-touch-right-cluster {
+    right: calc(22px + env(safe-area-inset-right, 0px));
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 }

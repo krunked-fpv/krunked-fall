@@ -649,6 +649,20 @@ export class WebGL2Renderer {
     };
   }
 
+  worldToScreen(worldX: number, worldY: number, state: SimState): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const vp = this.cssViewport;
+    const zoom = Math.max(0.5, state.camera.zoom || 1);
+    const logicalX = (worldX - state.camera.x) * zoom + LOGICAL_WIDTH * 0.5;
+    const logicalY = (worldY - state.camera.y) * zoom + LOGICAL_HEIGHT * 0.5;
+    const normX = logicalX / LOGICAL_WIDTH;
+    const normY = logicalY / LOGICAL_HEIGHT;
+    return {
+      x: rect.left + vp.x + normX * vp.width,
+      y: rect.top + vp.y + normY * vp.height,
+    };
+  }
+
   clearRoomDecals(): void {
     const gl = this.gl;
     if (gl && this.decalFboA && this.decalFboB) {
