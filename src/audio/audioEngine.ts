@@ -689,7 +689,10 @@ export class AudioEngine {
 
   public playUi(kind: UiSoundKind): void {
     if (this.disposed) return;
-    if (kind === 'hover' && !this.checkCooldown('ui_hover', 35)) return;
+    if (kind === 'hover') {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      if (!this.checkCooldown('ui_hover', 55)) return;
+    }
     if (kind === 'click' && !this.checkCooldown('ui_click', 25)) return;
 
     const pitch = kind === 'levelup' ? 1.0 : this.nextPitchMult(0.06);
@@ -699,7 +702,7 @@ export class AudioEngine {
       priority: kind === 'levelup' ? 5 : 3,
       eventX: 0,
       listenerX: 0,
-      volume: kind === 'hover' ? 0.6 : 0.85,
+      volume: kind === 'hover' ? 0.55 : 0.85,
       pitch,
       synth: (dest, vol, p) => this.synthSfx.playUi(dest, kind, { volume: vol, pitch: p }),
     });

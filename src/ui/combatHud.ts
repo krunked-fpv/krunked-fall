@@ -3,14 +3,15 @@
 // ============================================================================
 // Mutates cached DOM element refs directly (zero innerHTML churn at 120 FPS).
 // Covers:
-//   - Top-Left: Outcast badge, segmented HP + Shield bar, Ability charge pips,
+//   - Top-Left: Live Outcast pixel-art portrait, segmented HP bar with white
+//     damage-drain trail & hit-rim flash, Shield bar, Ability charge pips,
 //     Power meter (glows when ready), XP bar, Level & Gold
-//   - Top-Center: Segmented Boss Phase 1/Phase 2 HP bar + Freeze Storm escalation
-//   - Top-Right: Act/Loop/Node banner + Enemies/Exit badge + quick Workbench/Pause
-//   - Bottom-Left: 2-Slot Weapon Cards (name, tier, golden star, heat gauge,
-//     attached mod pips, [TAB] WORKBENCH) + all 6 Ammo Counters
-//   - Bottom-Center: Reactive Loki mid-run commentary toast + [E] prompt
-//   - Dynamic Crosshair tracking cursor during active combat
+//   - Top-Center: Boss Phase 1/Phase 2 HP bar with damage-drain trail + Freeze Storm
+//   - Top-Right: Act/Loop/Node banner + Enemies/Exit badge + quick Bench/Pause
+//   - Bottom-Left: 2-Slot Weapon Cards with live pixel-art weapon thumbnails,
+//     heat gauge, attached mod pips + 6 Ammo Counters with low-ammo warning
+//   - Bottom-Center: Reactive Loki portrait commentary toast + [E] prompt
+//   - Dynamic Crosshair with hitmarker pulse tracking cursor / twin-stick aim
 
 import {
   AMMO_NAMES,
@@ -26,6 +27,11 @@ import {
   getWeaponDef,
 } from '../data/index.js';
 import type { GamepadGlyphSet } from '../input/index.js';
+import {
+  getLokiPortraitUrl,
+  getOutcastPortraitUrl,
+  getWeaponThumbUrl,
+} from './spritePreview.js';
 
 function formatPromptTag(raw: string): string {
   const trimmed = raw.trim();
@@ -51,11 +57,11 @@ const AMMO_SHORT: readonly string[] = ['MEL', 'BUL', 'SHL', 'BLT', 'NRG', 'EXP']
 const TIER_COLORS: readonly string[] = [
   '#92a6bf',
   '#b8c7d9',
-  '#58f59a',
-  '#39d6ff',
-  '#c074ff',
-  '#ff9b35',
-  '#ff3a4e',
+  '#3df299',
+  '#38e0ff',
+  '#c278ff',
+  '#ff9c2a',
+  '#ff3d5e',
 ];
 
 export class CombatHud {
@@ -65,9 +71,12 @@ export class CombatHud {
   private visible = false;
 
   // Cached DOM refs for allocation-free 120 FPS updates
-  private readonly outcastDot: HTMLElement;
+  private readonly tlPanel: HTMLElement;
+  private readonly portraitBox: HTMLElement;
+  private readonly portraitImg: HTMLImageElement;
   private readonly outcastLabel: HTMLElement;
   private readonly levelGoldLabel: HTMLElement;
+  private readonly hpTrail: HTMLElement;
   private readonly hpFill: HTMLElement;
   private readonly hpText: HTMLElement;
   private readonly shieldWrap: HTMLElement;
@@ -90,6 +99,7 @@ export class CombatHud {
   private readonly bossBox: HTMLElement;
   private readonly bossNameEl: HTMLElement;
   private readonly bossPhasePill: HTMLElement;
+  private readonly bossHpTrail: HTMLElement;
   private readonly bossHpFill: HTMLElement;
   private readonly bossHpText: HTMLElement;
 
@@ -99,6 +109,7 @@ export class CombatHud {
 
   // Bottom-Left weapons & ammo
   private readonly slotCards: [HTMLElement, HTMLElement];
+  private readonly slotThumbs: [HTMLImageElement, HTMLImageElement];
   private readonly slotNames: [HTMLElement, HTMLElement];
   private readonly slotBadges: [HTMLElement, HTMLElement];
   private readonly slotHeatFills: [HTMLElement, HTMLElement];
@@ -111,10 +122,18 @@ export class CombatHud {
   private readonly lokiToastText: HTMLElement;
   private readonly promptEl: HTMLElement;
 
+  // Lightweight change-detection caches (zero unnecessary DOM writes)
+  private lastPortraitSig = '';
   private lastAbilitySig = '';
   private lastModSigs: [string, string] = ['', ''];
+  private lastWeaponThumbSigs: [string, string] = ['', ''];
   private lastBenchLabel = '[TAB] BENCH';
   private lastPauseLabel = '[ESC] PAUSE';
+  private lastPlayerHpPct = 100;
+  private lastBossId = -1;
+  private lastBossHpPct = 100;
+  private lastShotsHit = 0;
+  private hitMarkerUntilMs = 0;
 
   constructor(parent: HTMLElement, callbacks: CombatHudCallbacks) {
     this.cb = callbacks;
@@ -123,33 +142,46 @@ export class CombatHud {
     this.root.className = 'kf-combat-hud';
     this.root.style.display = 'none';
 
-    // ---- TOP-LEFT: Player Vitals ----
+    // ---- TOP-LEFT: Player Vitals with Live Portrait & Damage Trail ----
     const tl = document.createElement('div');
-    tl.className = 'kf-panel kf-hud-tl';
+    tl.className = 'kf-panel kf-panel-cyan kf-hud-tl';
+    this.tlPanel = tl;
+
+    const vitalsHead = document.createElement('div');
+    vitalsHead.className = 'kf-hud-vitals-head';
+
+    this.portraitBox = document.createElement('div');
+    this.portraitBox.className = 'kf-hud-portrait';
+    this.portraitImg = document.createElement('img');
+    this.portraitImg.width = 30;
+    this.portraitImg.height = 30;
+    this.portraitImg.className = 'kf-pixel-img';
+    this.portraitImg.alt = '';
+    this.portraitBox.appendChild(this.portraitImg);
+
+    const vitalsId = document.createElement('div');
+    vitalsId.className = 'kf-hud-vitals-id';
 
     const headerRow = document.createElement('div');
     headerRow.className = 'kf-vitals-row';
-    const leftId = document.createElement('div');
-    leftId.style.display = 'flex';
-    leftId.style.alignItems = 'center';
-    leftId.style.gap = '6px';
-    this.outcastDot = document.createElement('span');
-    this.outcastDot.style.width = '9px';
-    this.outcastDot.style.height = '9px';
-    this.outcastDot.style.border = '1px solid #fff';
     this.outcastLabel = document.createElement('strong');
-    this.outcastLabel.style.fontSize = '11px';
+    this.outcastLabel.style.fontFamily = 'var(--kf-font-display)';
+    this.outcastLabel.style.fontSize = '12px';
     this.outcastLabel.style.letterSpacing = '0.08em';
-    leftId.append(this.outcastDot, this.outcastLabel);
 
     this.levelGoldLabel = document.createElement('span');
+    this.levelGoldLabel.style.fontFamily = 'var(--kf-font)';
     this.levelGoldLabel.style.fontSize = '11px';
+    this.levelGoldLabel.style.fontWeight = '800';
     this.levelGoldLabel.style.color = 'var(--kf-amber)';
-    headerRow.append(leftId, this.levelGoldLabel);
+    headerRow.append(this.outcastLabel, this.levelGoldLabel);
 
-    // HP Bar
+    // HP Bar with White Damage-Drain Trail
     const hpTrack = document.createElement('div');
     hpTrack.className = 'kf-bar-track kf-bar-track-lg';
+    this.hpTrail = document.createElement('div');
+    this.hpTrail.className = 'kf-bar-trail';
+    this.hpTrail.style.width = '100%';
     this.hpFill = document.createElement('div');
     this.hpFill.className = 'kf-bar-fill';
     this.hpFill.style.background = '#e63946';
@@ -157,7 +189,10 @@ export class CombatHud {
     hpSeg.className = 'kf-bar-segments';
     this.hpText = document.createElement('div');
     this.hpText.className = 'kf-bar-label';
-    hpTrack.append(this.hpFill, hpSeg, this.hpText);
+    hpTrack.append(this.hpTrail, this.hpFill, hpSeg, this.hpText);
+
+    vitalsId.append(headerRow, hpTrack);
+    vitalsHead.append(this.portraitBox, vitalsId);
 
     // Shield Bar
     this.shieldWrap = document.createElement('div');
@@ -165,7 +200,7 @@ export class CombatHud {
     this.shieldWrap.style.display = 'none';
     this.shieldFill = document.createElement('div');
     this.shieldFill.className = 'kf-bar-fill';
-    this.shieldFill.style.background = '#39d6ff';
+    this.shieldFill.style.background = '#38e0ff';
     this.shieldText = document.createElement('div');
     this.shieldText.className = 'kf-bar-label';
     this.shieldWrap.append(this.shieldFill, this.shieldText);
@@ -177,14 +212,15 @@ export class CombatHud {
     this.abilityPips.style.display = 'flex';
     this.abilityPips.style.gap = '3px';
     this.abilityText = document.createElement('span');
-    this.abilityText.style.fontSize = '9px';
+    this.abilityText.style.fontFamily = 'var(--kf-font)';
+    this.abilityText.style.fontSize = '9.5px';
     this.abilityText.style.color = 'var(--kf-cyan)';
 
     this.powerWrap = document.createElement('div');
     this.powerWrap.className = 'kf-bar-track kf-power-meter';
     this.powerFill = document.createElement('div');
     this.powerFill.className = 'kf-bar-fill';
-    this.powerFill.style.background = '#ff9b35';
+    this.powerFill.style.background = '#ff9c2a';
     this.powerText = document.createElement('div');
     this.powerText.className = 'kf-bar-label';
     this.powerWrap.append(this.powerFill, this.powerText);
@@ -196,10 +232,10 @@ export class CombatHud {
     xpTrack.style.height = '4px';
     this.xpFill = document.createElement('div');
     this.xpFill.className = 'kf-bar-fill';
-    this.xpFill.style.background = '#58f59a';
+    this.xpFill.style.background = '#3df299';
     xpTrack.append(this.xpFill);
 
-    tl.append(headerRow, hpTrack, this.shieldWrap, abilRow, xpTrack);
+    tl.append(vitalsHead, this.shieldWrap, abilRow, xpTrack);
 
     // ---- TOP-RIGHT: Node Banner & Quick Buttons ----
     const tr = document.createElement('div');
@@ -213,7 +249,7 @@ export class CombatHud {
 
     const trBtns = document.createElement('div');
     trBtns.style.display = 'flex';
-    trBtns.style.gap = '5px';
+    trBtns.style.gap = '6px';
     trBtns.className = 'kf-interactive';
     trBtns.dataset.uiInteractive = 'true';
 
@@ -242,7 +278,7 @@ export class CombatHud {
     trBtns.append(benchQuick, pauseQuick);
     tr.append(banner, trBtns);
 
-    // ---- TOP-CENTER: Boss 2-Phase HP Bar & Freeze Storm Warning ----
+    // ---- TOP-CENTER: Boss 2-Phase HP Bar (with Drain Trail) & Freeze Storm ----
     const tc = document.createElement('div');
     tc.className = 'kf-hud-tc';
 
@@ -260,14 +296,17 @@ export class CombatHud {
 
     const bossTrack = document.createElement('div');
     bossTrack.className = 'kf-bar-track kf-bar-track-lg';
+    this.bossHpTrail = document.createElement('div');
+    this.bossHpTrail.className = 'kf-bar-trail';
+    this.bossHpTrail.style.width = '100%';
     this.bossHpFill = document.createElement('div');
     this.bossHpFill.className = 'kf-bar-fill';
-    this.bossHpFill.style.background = '#ff3a4e';
+    this.bossHpFill.style.background = '#ff3d5e';
     const bossSeg = document.createElement('div');
     bossSeg.className = 'kf-bar-segments';
     this.bossHpText = document.createElement('div');
     this.bossHpText.className = 'kf-bar-label';
-    bossTrack.append(this.bossHpFill, bossSeg, this.bossHpText);
+    bossTrack.append(this.bossHpTrail, this.bossHpFill, bossSeg, this.bossHpText);
     this.bossBox.append(bossHeader, bossTrack);
 
     this.freezeBox = document.createElement('div');
@@ -280,13 +319,13 @@ export class CombatHud {
     freezeTrack.className = 'kf-bar-track kf-bar-track-sm';
     this.freezeFill = document.createElement('div');
     this.freezeFill.className = 'kf-bar-fill';
-    this.freezeFill.style.background = '#39d6ff';
+    this.freezeFill.style.background = '#38e0ff';
     freezeTrack.append(this.freezeFill);
     this.freezeBox.append(this.freezeText, freezeTrack);
 
     tc.append(this.bossBox, this.freezeBox);
 
-    // ---- BOTTOM-LEFT: 2-Slot Weapon Cards + 6 Ammo Counters ----
+    // ---- BOTTOM-LEFT: 2-Slot Weapon Cards (with Pixel Sprites) + 6 Ammo Counters ----
     const bl = document.createElement('div');
     bl.className = 'kf-hud-bl';
 
@@ -295,6 +334,7 @@ export class CombatHud {
     slotsRow.dataset.uiInteractive = 'true';
 
     const cards: HTMLElement[] = [];
+    const thumbs: HTMLImageElement[] = [];
     const names: HTMLElement[] = [];
     const badges: HTMLElement[] = [];
     const heats: HTMLElement[] = [];
@@ -310,6 +350,25 @@ export class CombatHud {
         this.cb.onSwapWeapon();
       });
 
+      const mainRow = document.createElement('div');
+      mainRow.className = 'kf-weapon-card-main';
+
+      const thumbWrap = document.createElement('div');
+      thumbWrap.className = 'kf-weapon-hud-thumb';
+      const thumbImg = document.createElement('img');
+      thumbImg.width = 34;
+      thumbImg.height = 20;
+      thumbImg.className = 'kf-pixel-img';
+      thumbImg.alt = '';
+      thumbWrap.appendChild(thumbImg);
+
+      const textWrap = document.createElement('div');
+      textWrap.style.flex = '1';
+      textWrap.style.minWidth = '0';
+      textWrap.style.display = 'flex';
+      textWrap.style.flexDirection = 'column';
+      textWrap.style.gap = '3px';
+
       const topLine = document.createElement('div');
       topLine.style.display = 'flex';
       topLine.style.justifyContent = 'space-between';
@@ -317,7 +376,9 @@ export class CombatHud {
       topLine.style.gap = '4px';
 
       const wName = document.createElement('strong');
-      wName.style.fontSize = '10px';
+      wName.style.fontFamily = 'var(--kf-font-display)';
+      wName.style.fontSize = '11px';
+      wName.style.letterSpacing = '0.04em';
       wName.style.whiteSpace = 'nowrap';
       wName.style.overflow = 'hidden';
       wName.style.textOverflow = 'ellipsis';
@@ -328,21 +389,25 @@ export class CombatHud {
       wBadge.style.padding = '1px 4px';
       topLine.append(wName, wBadge);
 
-      const heatTrack = document.createElement('div');
-      heatTrack.className = 'kf-bar-track kf-bar-track-sm';
-      heatTrack.style.height = '5px';
-      const heatFill = document.createElement('div');
-      heatFill.className = 'kf-bar-fill';
-      heatFill.style.background = '#ff9b35';
-      heatTrack.append(heatFill);
-
       const modRow = document.createElement('div');
       modRow.className = 'kf-mod-pips';
 
-      card.append(topLine, heatTrack, modRow);
+      textWrap.append(topLine, modRow);
+      mainRow.append(thumbWrap, textWrap);
+
+      const heatTrack = document.createElement('div');
+      heatTrack.className = 'kf-bar-track kf-bar-track-sm';
+      heatTrack.style.height = '4px';
+      const heatFill = document.createElement('div');
+      heatFill.className = 'kf-bar-fill';
+      heatFill.style.background = '#ff9c2a';
+      heatTrack.append(heatFill);
+
+      card.append(mainRow, heatTrack);
       slotsRow.appendChild(card);
 
       cards.push(card);
+      thumbs.push(thumbImg);
       names.push(wName);
       badges.push(wBadge);
       heats.push(heatFill);
@@ -350,6 +415,7 @@ export class CombatHud {
     }
 
     this.slotCards = [cards[0], cards[1]];
+    this.slotThumbs = [thumbs[0], thumbs[1]];
     this.slotNames = [names[0], names[1]];
     this.slotBadges = [badges[0], badges[1]];
     this.slotHeatFills = [heats[0], heats[1]];
@@ -377,18 +443,31 @@ export class CombatHud {
 
     bl.append(slotsRow, ammoStrip);
 
-    // ---- BOTTOM-CENTER: Loki Toast & Contextual [E] Prompt ----
+    // ---- BOTTOM-CENTER: Loki Portrait Toast & Contextual [E] Prompt ----
     const bc = document.createElement('div');
     bc.className = 'kf-hud-bc';
 
     this.lokiToastEl = document.createElement('div');
     this.lokiToastEl.className = 'kf-loki-toast';
     this.lokiToastEl.style.display = 'none';
-    const lokiTag = document.createElement('span');
-    lokiTag.className = 'kf-pill kf-pill-emerald';
-    lokiTag.textContent = 'LOKI';
+
+    const lokiAvatar = document.createElement('div');
+    lokiAvatar.className = 'kf-loki-toast-avatar';
+    const lokiUrl = getLokiPortraitUrl(30);
+    if (lokiUrl) {
+      const lImg = document.createElement('img');
+      lImg.src = lokiUrl;
+      lImg.width = 28;
+      lImg.height = 28;
+      lImg.className = 'kf-pixel-img';
+      lImg.alt = 'Loki';
+      lokiAvatar.appendChild(lImg);
+    } else {
+      lokiAvatar.textContent = 'L';
+    }
+
     this.lokiToastText = document.createElement('span');
-    this.lokiToastEl.append(lokiTag, this.lokiToastText);
+    this.lokiToastEl.append(lokiAvatar, this.lokiToastText);
 
     this.promptEl = document.createElement('div');
     this.promptEl.className = 'kf-interact-prompt';
@@ -413,6 +492,7 @@ export class CombatHud {
     this.root.style.display = visible ? 'block' : 'none';
     if (!visible) {
       this.crosshairEl.classList.remove('visible');
+      this.crosshairEl.classList.remove('hit');
     }
   }
 
@@ -425,6 +505,7 @@ export class CombatHud {
   ): void {
     if (!this.visible) return;
 
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
     const benchLabel =
       activeDevice === 'touch'
@@ -471,16 +552,32 @@ export class CombatHud {
     const outcast = getOutcastDef(p.outcastId);
     const node = getOverworldNode(state.currentNodeId);
 
-    // Top-Left Vitals
-    this.outcastDot.style.background = outcast.accentColor;
+    // Top-Left Portrait (memoized)
+    const pSig = `${p.outcastId}|${p.skinId}`;
+    if (pSig !== this.lastPortraitSig) {
+      this.lastPortraitSig = pSig;
+      this.portraitBox.style.borderColor = outcast.accentColor;
+      const url = getOutcastPortraitUrl(p.outcastId, p.skinId, 32);
+      if (url) {
+        this.portraitImg.src = url;
+        this.portraitImg.style.display = 'block';
+      } else {
+        this.portraitImg.style.display = 'none';
+      }
+    }
+
     this.outcastLabel.textContent = `${outcast.name} · LVL ${p.level}`;
     this.levelGoldLabel.textContent = `${p.gold}G`;
 
+    // Player HP bar + delayed white damage-drain trail + hit pulse
     const hpPct = Math.max(0, Math.min(100, (p.hp / Math.max(1, p.maxHp)) * 100));
     this.hpFill.style.width = `${hpPct.toFixed(1)}%`;
+    this.hpTrail.style.width = `${hpPct.toFixed(1)}%`;
     this.hpFill.style.background =
-      hpPct <= 25 ? '#ff2a4b' : hpPct <= 55 ? '#ff9b35' : '#e63946';
+      hpPct <= 25 ? '#ff2a4b' : hpPct <= 55 ? '#ff9c2a' : '#e63946';
     this.hpText.textContent = `${Math.ceil(p.hp)} / ${p.maxHp} HP${state.godMode ? ' [GOD]' : ''}`;
+    this.tlPanel.classList.toggle('kf-hud-damaged', p.hitFlashTicks > 0 || hpPct < this.lastPlayerHpPct - 0.5);
+    this.lastPlayerHpPct = hpPct;
 
     if (p.maxShield > 0) {
       this.shieldWrap.style.display = 'block';
@@ -514,7 +611,7 @@ export class CombatHud {
     const pwrReady = pwrRatio >= 1;
     this.powerWrap.classList.toggle('kf-power-ready', pwrReady);
     this.powerFill.style.background =
-      p.powerActiveTicks > 0 ? '#58f59a' : pwrReady ? '#ffd166' : '#ff9b35';
+      p.powerActiveTicks > 0 ? '#3df299' : pwrReady ? '#ffd257' : '#ff9c2a';
     this.powerText.textContent =
       p.powerActiveTicks > 0
         ? `ACTIVE ${(p.powerActiveTicks / 60).toFixed(1)}s`
@@ -536,7 +633,7 @@ export class CombatHud {
       this.enemiesLeftPill.textContent = `${state.enemies.length} FOES`;
     }
 
-    // Top-Center Boss Phase 1 / Phase 2 Bar
+    // Top-Center Boss Phase 1 / Phase 2 Bar with Damage-Drain Trail
     const activeBoss = state.enemies.find((e) => e.isBoss && e.hp > 0);
     if (activeBoss && activeBoss.bossId) {
       const bDef = getBossDef(activeBoss.bossId);
@@ -547,11 +644,23 @@ export class CombatHud {
       this.bossNameEl.style.color = isP2 ? bDef.phase2Color : bDef.accentColor;
       this.bossPhasePill.textContent = isP2 ? 'PHASE II' : 'PHASE I';
       const bPct = Math.max(0, Math.min(100, (activeBoss.hp / Math.max(1, activeBoss.maxHp)) * 100));
+      if (this.lastBossId !== activeBoss.id || bPct > this.lastBossHpPct + 10) {
+        // Instant snap on new boss or Phase 2 full heal
+        this.bossHpTrail.style.transition = 'none';
+        this.bossHpTrail.style.width = `${bPct.toFixed(1)}%`;
+        void this.bossHpTrail.offsetWidth;
+        this.bossHpTrail.style.transition = '';
+      } else {
+        this.bossHpTrail.style.width = `${bPct.toFixed(1)}%`;
+      }
+      this.lastBossId = activeBoss.id;
+      this.lastBossHpPct = bPct;
       this.bossHpFill.style.width = `${bPct.toFixed(1)}%`;
       this.bossHpFill.style.background = isP2 ? bDef.phase2Color : bDef.accentColor;
       this.bossHpText.textContent = `${Math.ceil(activeBoss.hp)} / ${activeBoss.maxHp}`;
     } else {
       this.bossBox.style.display = 'none';
+      this.lastBossId = -1;
     }
 
     // Freeze Storm Warning Meter
@@ -572,12 +681,15 @@ export class CombatHud {
     this.updateWeaponCard(0, p.weapons[0], p.activeSlot === 0);
     this.updateWeaponCard(1, p.weapons[1], p.activeSlot === 1);
 
-    // 6 Ammo Counters
+    // 6 Ammo Counters with Low-Ammo Warning
     const activeWep = p.weapons[p.activeSlot];
     const activeAmmoType = activeWep ? getWeaponDef(activeWep.uniqueId).ammoType : 0;
     for (let a = 0; a < 6; a++) {
+      const count = p.ammo[a];
+      const isLow = a > 0 && count <= 10;
       this.ammoCells[a].classList.toggle('active', a === activeAmmoType);
-      this.ammoVals[a].textContent = a === 0 ? '∞' : String(p.ammo[a]);
+      this.ammoCells[a].classList.toggle('low', isLow && a === activeAmmoType);
+      this.ammoVals[a].textContent = a === 0 ? '∞' : String(count);
     }
 
     // Loki Toast
@@ -612,6 +724,12 @@ export class CombatHud {
       this.promptEl.style.display = 'none';
     }
 
+    // Hitmarker flash on shotsHit increment
+    if (p.shotsHit > this.lastShotsHit) {
+      this.hitMarkerUntilMs = nowMs + 95;
+    }
+    this.lastShotsHit = p.shotsHit;
+
     // Dynamic Crosshair / Twin-Stick Projected Aim Reticle
     const isStickAim = Boolean(
       cursor.isStickAim ||
@@ -623,14 +741,16 @@ export class CombatHud {
       const wepDef = activeWep ? getWeaponDef(activeWep.uniqueId) : null;
       this.crosshairEl.classList.add('visible');
       this.crosshairEl.classList.toggle('kf-crosshair-stick', isStickAim);
+      this.crosshairEl.classList.toggle('hit', nowMs < this.hitMarkerUntilMs);
       this.crosshairEl.style.left = `${cursor.x}px`;
       this.crosshairEl.style.top = `${cursor.y}px`;
-      this.crosshairEl.style.color = wepDef?.crosshairColor || '#39d6ff';
+      this.crosshairEl.style.color = wepDef?.crosshairColor || '#38e0ff';
       const recoilScale = activeWep ? 1 + Math.min(0.4, Math.abs(activeWep.recoilOffset) * 0.04) : 1;
       this.crosshairEl.style.transform = `scale(${recoilScale.toFixed(2)})`;
     } else {
       this.crosshairEl.classList.remove('visible');
       this.crosshairEl.classList.remove('kf-crosshair-stick');
+      this.crosshairEl.classList.remove('hit');
     }
   }
 
@@ -648,6 +768,10 @@ export class CombatHud {
       this.slotNames[slot].style.color = 'var(--kf-text-muted)';
       this.slotBadges[slot].textContent = '---';
       this.slotHeatFills[slot].style.width = '0%';
+      if (this.lastWeaponThumbSigs[slot] !== 'empty') {
+        this.lastWeaponThumbSigs[slot] = 'empty';
+        this.slotThumbs[slot].style.display = 'none';
+      }
       if (this.lastModSigs[slot] !== 'empty') {
         this.lastModSigs[slot] = 'empty';
         this.slotModPips[slot].innerHTML = '';
@@ -657,6 +781,19 @@ export class CombatHud {
 
     const def = getWeaponDef(inst.uniqueId);
     const tierCol = TIER_COLORS[def.weaponTier] ?? '#fff';
+
+    const thumbSig = `${inst.uniqueId}|${inst.golden ? 'g' : 'n'}`;
+    if (thumbSig !== this.lastWeaponThumbSigs[slot]) {
+      this.lastWeaponThumbSigs[slot] = thumbSig;
+      const url = getWeaponThumbUrl(def.ammoType, def.class, def.uniqueId, inst.golden, 44, 24);
+      if (url) {
+        this.slotThumbs[slot].src = url;
+        this.slotThumbs[slot].style.display = 'block';
+      } else {
+        this.slotThumbs[slot].style.display = 'none';
+      }
+    }
+
     this.slotNames[slot].textContent = `${inst.golden ? '★ ' : ''}[${slot + 1}] ${def.name}`;
     this.slotNames[slot].style.color = inst.golden ? 'var(--kf-amber)' : '#fff';
     this.slotBadges[slot].textContent = `T${def.weaponTier}`;
@@ -666,7 +803,7 @@ export class CombatHud {
     const heatPct = Math.max(0, Math.min(100, inst.overheat * 100));
     this.slotHeatFills[slot].style.width = `${heatPct.toFixed(0)}%`;
     this.slotHeatFills[slot].style.background =
-      inst.overheatedLockTicks > 0 ? '#ff3a4e' : heatPct > 70 ? '#ff6d00' : '#ff9b35';
+      inst.overheatedLockTicks > 0 ? '#ff3d5e' : heatPct > 70 ? '#ff6d00' : '#ff9c2a';
 
     const modSig = inst.mods.join(',');
     if (modSig !== this.lastModSigs[slot]) {

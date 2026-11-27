@@ -1,5 +1,5 @@
 // ============================================================================
-// KRUNKEDFALL — Gameplay & System Overlays
+// KRUNKEDFALL — Gameplay & System Overlays (Forged Ragnarok Polish)
 // ============================================================================
 // Workbench (TAB), Weapon Shop, Campfire, Pause (ESC), Options, Keybinds,
 // Victory / Loop Mode Prompt, and Game Over Run Summary.
@@ -19,6 +19,7 @@ import {
   UI_LABELS,
   getModDef,
   getOutcastDef,
+  getOverworldNode,
   getWeaponDef,
 } from '../data/index.js';
 import {
@@ -34,12 +35,17 @@ import {
   getWeaponModLimit,
   type EffectiveWeaponStats,
 } from '../sim/index.js';
+import { svgIcon, type IconName } from './icons.js';
+import {
+  getLokiPortraitUrl,
+  getOutcastPortraitUrl,
+  getWeaponThumbUrl,
+} from './spritePreview.js';
 
-function formatPromptTag(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
-  return `[${trimmed}]`;
+function stripBrackets(raw: string): string {
+  const t = raw.trim();
+  if (t.startsWith('[') && t.endsWith(']')) return t.slice(1, -1);
+  return t;
 }
 
 function formatControllerStatusLabel(status?: ControllerStatus): {
@@ -67,20 +73,20 @@ function formatControllerStatusLabel(status?: ControllerStatus): {
                 : 'GENERIC';
     const rawName = status.gamepadName.trim();
     const shortName =
-      rawName.length > 34 ? `${rawName.slice(0, 31)}...` : rawName;
+      rawName.length > 28 ? `${rawName.slice(0, 25)}...` : rawName;
     const mod = status.gamepadProfile === 'tesla' ? 'tesla' : 'gamepad';
     return {
       text: shortName
         ? `${profileTitle} · ${shortName}`
-        : `${profileTitle} CONTROLLER CONNECTED`,
+        : `${profileTitle} CONNECTED`,
       badgeClass: `kf-controller-badge connected ${mod}`,
     };
   }
   if (status.touchSensed) {
     return {
       text: status.isTeslaBrowser
-        ? 'TESLA TOUCHSCREEN ACTIVE'
-        : 'TOUCH CONTROLS SENSED',
+        ? 'TESLA TOUCH ACTIVE'
+        : 'TOUCH CONTROLS ACTIVE',
       badgeClass: status.isTeslaBrowser
         ? 'kf-controller-badge tesla'
         : 'kf-controller-badge touch',
@@ -88,8 +94,8 @@ function formatControllerStatusLabel(status?: ControllerStatus): {
   }
   return {
     text: status.isTeslaBrowser
-      ? 'TESLA BROWSER · CONNECT GAMEPAD OR TOUCH'
-      : 'NO GAMEPAD CONNECTED · KEYBOARD & MOUSE',
+      ? 'TESLA BROWSER · READY'
+      : 'KEYBOARD & MOUSE',
     badgeClass: status.isTeslaBrowser
       ? 'kf-controller-badge tesla'
       : 'kf-controller-badge',
@@ -144,6 +150,8 @@ export interface OverlaysCallbacks {
   onStartRebind(action: KeybindAction): void;
   onResetKeybinds(): void;
   onPlayUiClick(): void;
+  onPlayUiConfirm?(): void;
+  onPlayUiError?(): void;
 }
 
 function formatRunTime(ticks: number): string {
@@ -183,6 +191,16 @@ export class Overlays {
     parent.appendChild(this.backdrop);
   }
 
+  private playConfirm(): void {
+    if (this.cb.onPlayUiConfirm) this.cb.onPlayUiConfirm();
+    else this.cb.onPlayUiClick();
+  }
+
+  private playError(): void {
+    if (this.cb.onPlayUiError) this.cb.onPlayUiError();
+    else this.cb.onPlayUiClick();
+  }
+
   public render(
     kind: ModalOverlayKind,
     state: SimState,
@@ -198,6 +216,7 @@ export class Overlays {
         this.lastKind = 'none';
         this.lastSig = '';
         this.backdrop.style.display = 'none';
+        this.backdrop.classList.remove('kf-entering');
         this.backdrop.innerHTML = '';
       }
       return;
@@ -205,7 +224,6 @@ export class Overlays {
 
     this.backdrop.style.display = 'flex';
 
-    // Keep Options sliders interactive without tearing down DOM on volume/deadzone drag
     const sig = this.computeSignature(
       kind,
       state,
@@ -219,34 +237,37 @@ export class Overlays {
     if (kind === this.lastKind && sig === this.lastSig) {
       return;
     }
+
+    const isFreshOpen = kind !== this.lastKind;
     this.lastKind = kind;
     this.lastSig = sig;
+    this.backdrop.classList.toggle('kf-entering', isFreshOpen);
 
     this.backdrop.innerHTML = '';
     switch (kind) {
       case 'workbench':
-        this.buildWorkbench(state, controllerStatus, prompts);
+        this.buildWorkbench(state, isFreshOpen, controllerStatus, prompts);
         break;
       case 'shop':
-        this.buildShop(state);
+        this.buildShop(state, isFreshOpen);
         break;
       case 'campfire':
-        this.buildCampfire(state);
+        this.buildCampfire(state, isFreshOpen);
         break;
       case 'pause':
-        this.buildPause(state, controllerStatus, prompts);
+        this.buildPause(state, isFreshOpen, controllerStatus, prompts);
         break;
       case 'options':
-        this.buildOptions(save, packMode, customPackAvailable, controllerStatus, prompts);
+        this.buildOptions(save, packMode, customPackAvailable, isFreshOpen, controllerStatus, prompts);
         break;
       case 'keybinds':
-        this.buildKeybinds(save, rebindingAction, controllerStatus, prompts);
+        this.buildKeybinds(save, rebindingAction, isFreshOpen, controllerStatus, prompts);
         break;
       case 'victory':
-        this.buildVictory(state);
+        this.buildVictory(state, isFreshOpen);
         break;
       case 'gameover':
-        this.buildGameOver(state);
+        this.buildGameOver(state, isFreshOpen);
         break;
     }
   }
@@ -303,10 +324,9 @@ export class Overlays {
           p.weapons[p.activeSlot]?.golden ? 'g' : 'n',
         ].join('|');
       case 'pause':
-        return [kind, state.screenMode, state.currentNodeId, devKey].join('|');
+        return [kind, state.screenMode, state.currentNodeId, p.outcastId, p.skinId, Math.ceil(p.hp), p.gold, p.kills, devKey].join('|');
       case 'options': {
         const cs = save.controllerSettings ?? DEFAULT_CONTROLLER_SETTINGS;
-        // Deliberately omit continuous slider floats so dragging/stepping sliders stays smooth
         return [
           kind,
           save.renderSettings.targetFps,
@@ -352,6 +372,7 @@ export class Overlays {
 
   private buildWorkbench(
     state: SimState,
+    isFreshOpen: boolean,
     controllerStatus?: ControllerStatus,
     prompts?: GamepadGlyphSet,
   ): void {
@@ -386,38 +407,47 @@ export class Overlays {
       : null;
 
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-cyan kf-modal';
+    modal.className = `kf-panel kf-panel-cyan kf-modal${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'workbench-modal';
 
     const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
-    const closeLabel =
+    const closeKey =
       activeDevice === 'touch'
-        ? 'CLOSE'
+        ? ''
         : activeDevice === 'gamepad' && prompts
-          ? `CLOSE ${formatPromptTag(prompts.cancel)}`
-          : 'CLOSE [TAB / ESC]';
+          ? stripBrackets(prompts.cancel)
+          : 'TAB / ESC';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
-      <div>
-        <span class="kf-modal-title">${UI_LABELS.workbenchTitle}</span>
-        <span class="kf-modal-subtitle">GOLD: ${p.gold}G · MOD LIMIT: ${inst.mods.length}/${modLimit}</span>
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge">${svgIcon('workbench', 18)}</div>
+        <div>
+          <div class="kf-modal-title">${UI_LABELS.workbenchTitle}</div>
+          <span class="kf-modal-subtitle">GOLD: ${p.gold}G · MOD SOCKETS: ${inst.mods.length}/${modLimit}</span>
+        </div>
       </div>
     `;
-    const closeBtn = this.makeBtn(closeLabel, 'kf-btn kf-btn-sm kf-btn-danger', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onCloseOverlay();
-    });
+    const closeBtn = this.makeHtmlBtn(
+      `${svgIcon('close', 13)}<span>CLOSE</span>${closeKey ? `<span class="kf-kbd">${closeKey}</span>` : ''}`,
+      'kf-btn kf-btn-sm kf-btn-danger',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onCloseOverlay();
+      },
+    );
     closeBtn.dataset.testid = 'workbench-close-btn';
     header.appendChild(closeBtn);
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body kf-scroll';
 
-    // Slot Selector Tabs
+    // Top Slot Selector + Golden Forge CTA
     const tabsRow = document.createElement('div');
     tabsRow.style.display = 'flex';
+    tabsRow.style.alignItems = 'center';
+    tabsRow.style.flexWrap = 'wrap';
     tabsRow.style.gap = '8px';
     tabsRow.style.marginBottom = '12px';
 
@@ -449,16 +479,19 @@ export class Overlays {
       tabsRow.appendChild(tabBtn);
     }
 
-    const goldBtn = this.makeBtn(
+    const goldBtn = this.makeHtmlBtn(
       inst.golden
-        ? '★ GOLDEN UPGRADED'
-        : `GOLDEN UPGRADE (${goldenCost}G)`,
+        ? `${svgIcon('star', 13)}<span>GOLDEN FORGED</span>`
+        : `${svgIcon('spark', 13)}<span>GOLDEN UPGRADE (${goldenCost}G)</span>`,
       inst.golden
         ? 'kf-btn kf-btn-sm kf-btn-emerald'
         : 'kf-btn kf-btn-sm kf-btn-gold',
       () => {
-        this.cb.onPlayUiClick();
-        this.cb.onGoldenUpgrade(this.workbenchSlot);
+        if (this.cb.onGoldenUpgrade(this.workbenchSlot)) {
+          this.playConfirm();
+        } else {
+          this.playError();
+        }
       },
     );
     goldBtn.disabled = inst.golden || p.gold < goldenCost;
@@ -466,103 +499,118 @@ export class Overlays {
     goldBtn.dataset.testid = 'workbench-golden-btn';
     tabsRow.appendChild(goldBtn);
 
-    // Split Grid: Left = Attached Mods + Live Stat Table, Right = Backpack Mods
+    // Split Grid
     const grid = document.createElement('div');
     grid.className = 'kf-workbench-grid';
 
-    // Left column
+    // Left column: Weapon Showcase + Mod Sockets + Live Telemetry
     const leftCol = document.createElement('div');
     leftCol.style.display = 'flex';
     leftCol.style.flexDirection = 'column';
     leftCol.style.gap = '10px';
 
-    const wepCard = document.createElement('div');
-    wepCard.className = 'kf-card';
-    wepCard.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:14px;color:${inst.golden ? 'var(--kf-amber)' : '#fff'};">
-          ${inst.golden ? '★ ' : ''}${def.name}
-        </strong>
-        <span class="kf-pill kf-pill-cyan">TIER ${def.weaponTier} · ${AMMO_NAMES[def.ammoType]}</span>
+    const wepThumb = getWeaponThumbUrl(def.ammoType, def.class, def.uniqueId, inst.golden, 108, 68);
+    const showcase = document.createElement('div');
+    showcase.className = `kf-wb-showcase${inst.golden ? ' golden' : ''}`;
+    showcase.innerHTML = `
+      <div class="kf-wb-weapon-stage">
+        ${wepThumb ? `<img class="kf-pixel-img" src="${wepThumb}" width="96" height="60" alt="${def.name}">` : svgIcon('weapondex', 28)}
       </div>
-      <div style="font-size:11px;color:var(--kf-text-dim);">
-        ATTACHED MODS (${inst.mods.length}/${modLimit}) — Click DETACH to return to backpack
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;">
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <strong style="font-family:var(--kf-font-display);font-size:16px;letter-spacing:0.08em;color:${inst.golden ? 'var(--kf-amber)' : '#fff'};">
+            ${inst.golden ? '★ ' : ''}${def.name}
+          </strong>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          <span class="kf-pill kf-pill-cyan">TIER ${def.weaponTier}</span>
+          <span class="kf-pill">${AMMO_NAMES[def.ammoType]}</span>
+          <span class="kf-pill ${inst.golden ? 'kf-pill-gold' : ''}">${inst.golden ? 'GOLDEN +35% DMG' : 'STANDARD FRAME'}</span>
+        </div>
       </div>
     `;
 
-    const attachedList = document.createElement('div');
-    attachedList.style.display = 'flex';
-    attachedList.style.flexDirection = 'column';
-    attachedList.style.gap = '6px';
+    // Visual Mod Sockets Card
+    const socketsCard = document.createElement('div');
+    socketsCard.className = 'kf-card';
+    socketsCard.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong style="font-family:var(--kf-font-display);font-size:12px;letter-spacing:0.1em;color:var(--kf-cyan);">ATTACHED MOD SOCKETS</strong>
+        <span class="kf-pill">${inst.mods.length} / ${modLimit}</span>
+      </div>
+    `;
 
-    if (inst.mods.length === 0) {
-      const empty = document.createElement('div');
-      empty.style.fontSize = '11px';
-      empty.style.color = 'var(--kf-text-muted)';
-      empty.textContent = 'No mods attached yet. Attach mods from your backpack on the right.';
-      attachedList.appendChild(empty);
-    } else {
-      inst.mods.forEach((modId, idx) => {
+    const socketsGrid = document.createElement('div');
+    socketsGrid.className = 'kf-mod-sockets';
+
+    for (let i = 0; i < modLimit; i++) {
+      const modId = inst.mods[i];
+      if (modId) {
         const mDef = getModDef(modId);
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
-        row.style.alignItems = 'center';
-        row.style.gap = '8px';
-        row.style.padding = '5px 8px';
-        row.style.background = 'var(--kf-bg-1)';
-        row.style.borderLeft = `3px solid ${mDef.accentColor}`;
-        row.innerHTML = `
-          <div>
-            <strong style="font-size:11px;color:${mDef.accentColor};">${mDef.name}</strong>
-            <div style="font-size:10px;color:var(--kf-text-dim);">${mDef.description}</div>
+        const sock = document.createElement('div');
+        sock.className = 'kf-mod-socket';
+        sock.style.borderLeft = `3px solid ${mDef.accentColor}`;
+        sock.innerHTML = `
+          <div style="min-width:0;">
+            <strong style="display:block;font-family:var(--kf-font-display);font-size:11.5px;color:${mDef.accentColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mDef.name}</strong>
+            <div style="font-size:10px;color:var(--kf-text-dim);line-height:1.25;">${mDef.description}</div>
           </div>
         `;
         const detBtn = this.makeBtn('DETACH', 'kf-btn kf-btn-sm kf-btn-danger', () => {
           this.cb.onPlayUiClick();
-          this.cb.onDetachMod(idx, this.workbenchSlot);
+          this.cb.onDetachMod(i, this.workbenchSlot);
         });
-        row.appendChild(detBtn);
-        attachedList.appendChild(row);
-      });
+        detBtn.style.padding = '4px 7px';
+        detBtn.style.fontSize = '9.5px';
+        sock.appendChild(detBtn);
+        socketsGrid.appendChild(sock);
+      } else {
+        const emptySock = document.createElement('div');
+        emptySock.className = 'kf-mod-socket empty';
+        emptySock.textContent = `+ EMPTY SOCKET ${i + 1}`;
+        socketsGrid.appendChild(emptySock);
+      }
     }
-    wepCard.appendChild(attachedList);
+    socketsCard.appendChild(socketsGrid);
 
     // Live Stat Delta Comparison Table
     const statCard = document.createElement('div');
     statCard.className = 'kf-card';
-    const previewLabel = previewStats && this.previewModId
-      ? `PREVIEWING +${getModDef(this.previewModId).name}`
-      : 'EFFECTIVE WEAPON TELEMETRY';
-    statCard.innerHTML = `<strong style="font-size:11px;color:var(--kf-cyan);letter-spacing:0.08em;">${previewLabel}</strong>`;
+    const previewLabel =
+      previewStats && this.previewModId
+        ? `PREVIEWING +${getModDef(this.previewModId).name}`
+        : 'EFFECTIVE WEAPON TELEMETRY';
+    statCard.innerHTML = `<strong style="font-family:var(--kf-font-display);font-size:11.5px;color:${previewStats ? 'var(--kf-amber)' : 'var(--kf-cyan)'};letter-spacing:0.1em;">${previewLabel}</strong>`;
 
     const table = document.createElement('table');
     table.className = 'kf-stat-table';
     table.innerHTML = this.renderStatDeltaRows(curStats, previewStats);
     statCard.appendChild(table);
 
-    leftCol.append(wepCard, statCard);
+    leftCol.append(showcase, socketsCard, statCard);
 
     // Right column: Backpack Mods
     const rightCol = document.createElement('div');
     rightCol.className = 'kf-card';
     rightCol.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <strong style="font-size:12px;color:var(--kf-rune);letter-spacing:0.08em;">BACKPACK MODS (${p.backpackMods.length})</strong>
-        <span style="font-size:10px;color:var(--kf-text-dim);">Hover/click to preview stat deltas</span>
+        <strong style="font-family:var(--kf-font-display);font-size:12.5px;color:var(--kf-rune);letter-spacing:0.1em;">${svgIcon('rune', 13)} BACKPACK MODS (${p.backpackMods.length})</strong>
+        <span style="font-size:10.5px;color:var(--kf-text-dim);">Hover to preview deltas</span>
       </div>
     `;
 
     const bpList = document.createElement('div');
     bpList.style.display = 'flex';
     bpList.style.flexDirection = 'column';
-    bpList.style.gap = '6px';
+    bpList.style.gap = '7px';
 
     if (p.backpackMods.length === 0) {
       const empty = document.createElement('div');
-      empty.style.fontSize = '11px';
+      empty.style.fontSize = '12px';
       empty.style.color = 'var(--kf-text-muted)';
-      empty.textContent = 'Backpack empty. Open Mod Chests, visit Shops, or defeat Bosses to collect mods & runes.';
+      empty.style.padding = '16px 8px';
+      empty.style.textAlign = 'center';
+      empty.textContent = 'Backpack empty. Open Mod Chests, visit Shops, or slay Bosses to collect mods & runes.';
       bpList.appendChild(empty);
     } else {
       const seen = new Map<string, number>();
@@ -571,18 +619,14 @@ export class Overlays {
       }
       for (const [modId, count] of seen.entries()) {
         const mDef = getModDef(modId);
+        const isPrev = this.previewModId === modId;
         const item = document.createElement('div');
-        item.style.padding = '7px 9px';
-        item.style.background =
-          this.previewModId === modId ? '#1e283b' : 'var(--kf-bg-1)';
-        item.style.border =
-          this.previewModId === modId
-            ? `1px solid ${mDef.accentColor}`
-            : '1px solid var(--kf-border)';
-        item.style.display = 'flex';
-        item.style.justifyContent = 'space-between';
-        item.style.alignItems = 'center';
-        item.style.gap = '8px';
+        item.className = 'kf-mod-socket';
+        item.style.borderLeft = `3px solid ${mDef.accentColor}`;
+        if (isPrev) {
+          item.style.background = 'rgba(26, 38, 58, 0.94)';
+          item.style.borderColor = mDef.accentColor;
+        }
         item.addEventListener('mouseenter', () => {
           if (this.previewModId !== modId) {
             this.previewModId = modId;
@@ -590,20 +634,23 @@ export class Overlays {
           }
         });
         item.innerHTML = `
-          <div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <strong style="font-size:11px;color:${mDef.accentColor};">${mDef.name}</strong>
-              <span class="kf-pill" style="font-size:9px;">T${mDef.tier} · x${count}</span>
+          <div style="min-width:0;flex:1;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <strong style="font-family:var(--kf-font-display);font-size:12px;color:${mDef.accentColor};">${mDef.name}</strong>
+              <span class="kf-pill" style="font-size:9px;padding:1px 5px;">${mDef.category.toUpperCase()} · T${mDef.tier} · ×${count}</span>
             </div>
-            <div style="font-size:10px;color:var(--kf-text-dim);">${mDef.description}</div>
+            <div style="font-size:11px;color:var(--kf-text-dim);margin-top:2px;">${mDef.description}</div>
           </div>
         `;
         const attachBtn = this.makeBtn(
           inst.mods.length >= modLimit ? 'FULL' : 'ATTACH',
           'kf-btn kf-btn-sm kf-btn-emerald',
           () => {
-            this.cb.onPlayUiClick();
-            this.cb.onAttachMod(modId, this.workbenchSlot);
+            if (this.cb.onAttachMod(modId, this.workbenchSlot)) {
+              this.playConfirm();
+            } else {
+              this.playError();
+            }
           },
         );
         attachBtn.disabled = inst.mods.length >= modLimit;
@@ -665,7 +712,7 @@ export class Overlays {
       fmt('PROJ SPEED', cur.projectileSpeed, next?.projectileSpeed ?? null, 1, true),
       fmt('OVERHEAT / SHOT', cur.overheatPerShot * 100, next ? next.overheatPerShot * 100 : null, 1, false, '%'),
       fmt('BOUNCES / PIERCE', cur.extraBounces + cur.pierce, next ? next.extraBounces + next.pierce : null, 0, true),
-      `<tr><td>ELEMENTS</td><td>${elems(next ?? cur)}</td></tr>`,
+      `<tr><td>ELEMENTS</td><td style="color:var(--kf-amber);">${elems(next ?? cur)}</td></tr>`,
     ].join('');
   }
 
@@ -673,23 +720,30 @@ export class Overlays {
   // 2. WEAPON SHOP
   // ==========================================================================
 
-  private buildShop(state: SimState): void {
+  private buildShop(state: SimState, isFreshOpen: boolean): void {
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-gold kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-gold kf-modal kf-modal-md${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'shop-modal';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
-      <div>
-        <span class="kf-modal-title" style="color:var(--kf-amber);">MIDGARD ARMS DEALER</span>
-        <span class="kf-modal-subtitle">GOLD BALANCE: ${state.player.gold}G</span>
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge gold">${svgIcon('shop', 18)}</div>
+        <div>
+          <div class="kf-modal-title" style="color:var(--kf-amber);">MIDGARD ARMS DEALER</div>
+          <span class="kf-modal-subtitle">GOLD BALANCE: ${state.player.gold}G</span>
+        </div>
       </div>
     `;
-    const leaveBtn = this.makeBtn('RETURN TO OVERWORLD ▶', 'kf-btn kf-btn-sm kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onLeaveToOverworld();
-    });
+    const leaveBtn = this.makeHtmlBtn(
+      `${svgIcon('bifrost', 14)}<span>OVERWORLD</span>${svgIcon('chevronRight', 13)}`,
+      'kf-btn kf-btn-sm kf-btn-primary',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onLeaveToOverworld();
+      },
+    );
     header.appendChild(leaveBtn);
 
     const body = document.createElement('div');
@@ -702,32 +756,63 @@ export class Overlays {
       const canAfford = !offer.purchased && state.player.gold >= offer.price;
       const card = document.createElement('div');
       card.className = `kf-card${offer.purchased ? ' locked' : ''}`;
+
       let detail = offer.kind.replace('_', ' ').toUpperCase();
+      let visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;">${svgIcon('gold', 20)}</div>`;
+
       if (offer.weaponUniqueId !== undefined) {
         const wDef = getWeaponDef(offer.weaponUniqueId);
         detail = `TIER ${wDef.weaponTier} ${AMMO_NAMES[wDef.ammoType]} · DMG ${wDef.baseDamage}`;
+        const thumb = getWeaponThumbUrl(wDef.ammoType, wDef.class, wDef.uniqueId, false, 56, 36);
+        visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;">${thumb ? `<img class="kf-pixel-img" src="${thumb}" width="52" height="34" alt="">` : svgIcon('weapondex', 20)}</div>`;
       } else if (offer.modId) {
-        detail = getModDef(offer.modId).description;
+        const mDef = getModDef(offer.modId);
+        detail = mDef.description;
+        visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;color:${mDef.accentColor};border-color:${mDef.accentColor}66;">${svgIcon('rune', 22)}</div>`;
+      } else if (offer.kind === 'heal') {
+        detail = 'Restore 45% of maximum vitality immediately.';
+        visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;color:var(--kf-emerald);border-color:rgba(61,242,153,0.45);">${svgIcon('heart', 20)}</div>`;
+      } else if (offer.kind === 'ammo') {
+        detail = 'Replenish all finite weapon ammunition reserves.';
+        visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;color:var(--kf-amber);border-color:rgba(255,198,84,0.45);">${svgIcon('ammo', 20)}</div>`;
+      } else if (offer.kind === 'golden_upgrade') {
+        detail = 'Forge your active weapon into a Golden masterpiece (+35% DMG).';
+        visualHtml = `<div class="kf-dex-thumb" style="width:58px;height:44px;color:var(--kf-amber);border-color:rgba(255,210,87,0.65);">${svgIcon('star', 20)}</div>`;
       }
 
-      card.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-          <strong style="color:#fff;">${offer.name}</strong>
-          <span class="kf-pill kf-pill-gold">${offer.price}G</span>
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '11px';
+      row.innerHTML = `
+        ${visualHtml}
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <strong style="font-family:var(--kf-font-display);font-size:13.5px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${offer.name}</strong>
+            <span class="kf-pill kf-pill-gold">${offer.price}G</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--kf-text-dim);margin-top:2px;line-height:1.35;">${detail}</div>
         </div>
-        <div style="font-size:11px;color:var(--kf-text-dim);">${detail}</div>
       `;
+      card.appendChild(row);
 
-      const buyBtn = this.makeBtn(
-        offer.purchased ? 'PURCHASED' : canAfford ? `BUY (${offer.price}G)` : 'INSUFFICIENT GOLD',
+      const buyBtn = this.makeHtmlBtn(
+        offer.purchased
+          ? `${svgIcon('check', 13)}<span>PURCHASED</span>`
+          : canAfford
+            ? `${svgIcon('gold', 13)}<span>BUY (${offer.price}G)</span>`
+            : `${svgIcon('lock', 13)}<span>NEED ${offer.price}G</span>`,
         offer.purchased
           ? 'kf-btn kf-btn-sm'
           : canAfford
             ? 'kf-btn kf-btn-sm kf-btn-gold'
             : 'kf-btn kf-btn-sm',
         () => {
-          this.cb.onPlayUiClick();
-          this.cb.onBuyShopOffer(offer.id);
+          if (this.cb.onBuyShopOffer(offer.id)) {
+            this.playConfirm();
+          } else {
+            this.playError();
+          }
         },
       );
       buyBtn.disabled = !canAfford;
@@ -741,30 +826,37 @@ export class Overlays {
   }
 
   // ==========================================================================
-  // 3. CAMPFIRE
+  // 3. CAMPFIRE HEARTH
   // ==========================================================================
 
-  private buildCampfire(state: SimState): void {
+  private buildCampfire(state: SimState, isFreshOpen: boolean): void {
     const p = state.player;
     const activeWep = p.weapons[p.activeSlot];
     const activeDef = activeWep ? getWeaponDef(activeWep.uniqueId) : null;
 
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-gold kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-gold kf-modal kf-modal-md${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'campfire-modal';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
-      <div>
-        <span class="kf-modal-title" style="color:var(--kf-amber);">MIDGARD CAMPFIRE HEARTH</span>
-        <span class="kf-modal-subtitle">CHOOSE ONE BOON BEFORE CONTINUING</span>
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge gold">${svgIcon('flame', 18)}</div>
+        <div>
+          <div class="kf-modal-title" style="color:var(--kf-amber);">MIDGARD CAMPFIRE HEARTH</div>
+          <span class="kf-modal-subtitle">CHOOSE ONE BOON BEFORE CONTINUING</span>
+        </div>
       </div>
     `;
-    const skipBtn = this.makeBtn('LEAVE TO OVERWORLD', 'kf-btn kf-btn-sm', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onLeaveToOverworld();
-    });
+    const skipBtn = this.makeHtmlBtn(
+      `<span>LEAVE</span>${svgIcon('chevronRight', 13)}`,
+      'kf-btn kf-btn-sm',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onLeaveToOverworld();
+      },
+    );
     header.appendChild(skipBtn);
 
     const body = document.createElement('div');
@@ -772,24 +864,32 @@ export class Overlays {
 
     const choices: Array<{
       action: 'heal' | 'ammo' | 'upgrade' | 'skill';
+      icon: IconName;
+      badgeCls: string;
       title: string;
       desc: string;
       btnClass: string;
     }> = [
       {
         action: 'heal',
+        icon: 'heart',
+        badgeCls: 'emerald',
         title: 'REST & FULL HEAL',
-        desc: `Restore full HP (${Math.ceil(p.hp)}/${p.maxHp}) and energy shields.`,
+        desc: `Restore full HP (${Math.ceil(p.hp)}/${p.maxHp}) and recharge energy shields.`,
         btnClass: 'kf-btn kf-btn-emerald',
       },
       {
         action: 'ammo',
+        icon: 'ammo',
+        badgeCls: 'gold',
         title: 'AMMO RESUPPLY CRATE',
         desc: 'Refill all 5 finite ammunition reserves (Bullets, Shells, Bolts, Energy, Explosives) to 100%.',
         btnClass: 'kf-btn kf-btn-gold',
       },
       {
         action: 'upgrade',
+        icon: 'star',
+        badgeCls: '',
         title: activeWep?.golden ? 'FORGE FREE MOD CRATE' : 'FORGE GOLDEN UPGRADE',
         desc: activeWep?.golden
           ? 'Receive a high-tier weapon mod or Norse rune in your backpack.'
@@ -798,6 +898,8 @@ export class Overlays {
       },
       {
         action: 'skill',
+        icon: 'tree',
+        badgeCls: 'rune',
         title: 'MEDITATE BY THE FLAME',
         desc: 'Gain +1 Yggdrasil Skill Point immediately for permanent Outcast upgrades.',
         btnClass: 'kf-btn kf-btn-gold',
@@ -811,11 +913,14 @@ export class Overlays {
       const card = document.createElement('div');
       card.className = 'kf-card';
       card.innerHTML = `
-        <strong style="color:#fff;">${c.title}</strong>
-        <div style="font-size:11px;color:var(--kf-text-dim);flex:1;">${c.desc}</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="kf-modal-icon-badge ${c.badgeCls}" style="width:34px;height:34px;">${svgIcon(c.icon, 18)}</div>
+          <strong style="font-family:var(--kf-font-display);font-size:14px;letter-spacing:0.08em;color:#fff;">${c.title}</strong>
+        </div>
+        <div style="font-size:12px;color:var(--kf-text-dim);flex:1;line-height:1.45;">${c.desc}</div>
       `;
-      const btn = this.makeBtn('CHOOSE', c.btnClass, () => {
-        this.cb.onPlayUiClick();
+      const btn = this.makeBtn('CLAIM BOON', c.btnClass, () => {
+        this.playConfirm();
         this.cb.onUseCampfire(c.action);
       });
       card.appendChild(btn);
@@ -828,29 +933,43 @@ export class Overlays {
   }
 
   // ==========================================================================
-  // 4. PAUSE MENU (ESC)
+  // 4. PAUSE MENU (ESC) WITH LIVE RUN DOSSIER
   // ==========================================================================
 
   private buildPause(
     state: SimState,
+    isFreshOpen: boolean,
     controllerStatus?: ControllerStatus,
     prompts?: GamepadGlyphSet,
   ): void {
+    const p = state.player;
+    const outcast = getOutcastDef(p.outcastId);
+    const node = getOverworldNode(state.currentNodeId);
+    const portraitUrl = getOutcastPortraitUrl(p.outcastId, p.skinId, 42);
+
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-sm';
+    modal.className = `kf-panel kf-panel-cyan kf-modal kf-modal-sm${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'pause-modal';
 
     const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
-    const resumeLabel =
+    const resumeKey =
       activeDevice === 'touch'
-        ? 'RESUME'
+        ? ''
         : activeDevice === 'gamepad' && prompts
-          ? `RESUME ${formatPromptTag(prompts.pause)}`
-          : 'RESUME [ESC]';
+          ? stripBrackets(prompts.pause)
+          : 'ESC';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
-    header.innerHTML = `<span class="kf-modal-title">PAUSED</span><span class="kf-modal-subtitle">ACT ${state.act} · LOOP ${state.loopCount}</span>`;
+    header.innerHTML = `
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge">${svgIcon('pause', 17)}</div>
+        <div>
+          <div class="kf-modal-title">PAUSED</div>
+          <span class="kf-modal-subtitle">ACT ${state.act} · ${node.displayName} · LOOP ${state.loopCount}</span>
+        </div>
+      </div>
+    `;
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body';
@@ -858,50 +977,91 @@ export class Overlays {
     body.style.flexDirection = 'column';
     body.style.gap = '9px';
 
-    const resumeBtn = this.makeBtn(resumeLabel, 'kf-btn kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onResumeGame();
-    });
+    // Run Dossier Strip
+    const dossier = document.createElement('div');
+    dossier.className = 'kf-pause-dossier';
+    dossier.innerHTML = `
+      <div class="kf-hub-portrait" style="border-color:${outcast.accentColor};">
+        ${portraitUrl ? `<img class="kf-pixel-img" src="${portraitUrl}" width="36" height="36" alt="${outcast.name}">` : svgIcon('clone', 18)}
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-family:var(--kf-font-display);font-size:13.5px;letter-spacing:0.08em;color:#fff;">${outcast.name} · LVL ${p.level}</strong>
+          <span style="font-family:var(--kf-font);font-size:11px;color:var(--kf-text-dim);">${formatRunTime(state.runStats.elapsedTicks)}</span>
+        </div>
+        <div style="display:flex;gap:10px;font-family:var(--kf-font);font-size:11px;margin-top:3px;">
+          <span style="color:var(--kf-emerald);">HP ${Math.ceil(p.hp)}/${p.maxHp}</span>
+          <span style="color:var(--kf-amber);">${p.gold}G</span>
+          <span style="color:var(--kf-cyan);">${p.kills} KILLS</span>
+        </div>
+      </div>
+    `;
+
+    const resumeBtn = this.makeHtmlBtn(
+      `${svgIcon('play', 14)}<span>RESUME</span>${resumeKey ? `<span class="kf-kbd kf-kbd-cyan">${resumeKey}</span>` : ''}`,
+      'kf-btn kf-btn-primary',
+      () => {
+        this.playConfirm();
+        this.cb.onResumeGame();
+      },
+    );
     resumeBtn.dataset.testid = 'pause-resume-btn';
     resumeBtn.dataset.gpInitial = 'true';
 
-    const optBtn = this.makeBtn('OPTIONS', 'kf-btn', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onOpenOptions();
-    });
+    const optBtn = this.makeHtmlBtn(
+      `${svgIcon('options', 14)}<span>OPTIONS</span>`,
+      'kf-btn',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onOpenOptions();
+      },
+    );
     optBtn.dataset.testid = 'pause-options-btn';
 
-    const kbBtn = this.makeBtn('KEYBINDS & CONTROLS', 'kf-btn', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onOpenKeybinds();
-    });
+    const kbBtn = this.makeHtmlBtn(
+      `${svgIcon('keybinds', 14)}<span>KEYBINDS &amp; CONTROLS</span>`,
+      'kf-btn',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onOpenKeybinds();
+      },
+    );
     kbBtn.dataset.testid = 'pause-keybinds-btn';
 
-    const hubBtn = this.makeBtn('RETURN TO OUTPOST HUB', 'kf-btn kf-btn-gold', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onReturnToHub();
-    });
+    const hubBtn = this.makeHtmlBtn(
+      `${svgIcon('hub', 14)}<span>RETURN TO OUTPOST HUB</span>`,
+      'kf-btn kf-btn-gold',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onReturnToHub();
+      },
+    );
     hubBtn.dataset.testid = 'pause-hub-btn';
 
-    const titleBtn = this.makeBtn('TITLE SCREEN', 'kf-btn kf-btn-danger', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onReturnToTitle();
-    });
+    const titleBtn = this.makeHtmlBtn(
+      `${svgIcon('close', 14)}<span>TITLE SCREEN</span>`,
+      'kf-btn kf-btn-danger',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onReturnToTitle();
+      },
+    );
     titleBtn.dataset.testid = 'pause-title-btn';
 
-    body.append(resumeBtn, optBtn, kbBtn, hubBtn, titleBtn);
+    body.append(dossier, resumeBtn, optBtn, kbBtn, hubBtn, titleBtn);
     modal.append(header, body);
     this.backdrop.appendChild(modal);
   }
 
   // ==========================================================================
-  // 5. OPTIONS MODAL (FPS, PIXEL-SNAP, AUDIO, GRAPHICS, CONTROLLER & TOUCH)
+  // 5. OPTIONS MODAL (BALANCED 2-COLUMN CARDS · ZERO CLIPPING · CUSTOM CONTROLS)
   // ==========================================================================
 
   private buildOptions(
     save: SaveData,
     packMode: AssetPackMode,
     customPackAvailable: boolean,
+    isFreshOpen: boolean,
     controllerStatus?: ControllerStatus,
     prompts?: GamepadGlyphSet,
   ): void {
@@ -909,77 +1069,161 @@ export class Overlays {
     const as = save.audioSettings;
     const cs = save.controllerSettings ?? DEFAULT_CONTROLLER_SETTINGS;
     const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
-    const doneLabel =
+    const doneKey =
       activeDevice === 'touch'
-        ? 'DONE'
+        ? ''
         : activeDevice === 'gamepad' && prompts
-          ? `DONE ${formatPromptTag(prompts.cancel)}`
-          : 'DONE [ESC]';
+          ? stripBrackets(prompts.cancel)
+          : 'ESC';
 
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-cyan kf-modal${isFreshOpen ? ' kf-entering' : ''}`;
+    modal.style.width = 'min(960px, 96vw)';
     modal.dataset.testid = 'options-modal';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
-    header.innerHTML = `<span class="kf-modal-title">${UI_LABELS.optionsTitle}</span><span class="kf-modal-subtitle">SAVED AUTOMATICALLY</span>`;
-    const closeBtn = this.makeBtn(doneLabel, 'kf-btn kf-btn-sm kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onCloseOverlay();
-    });
+    header.innerHTML = `
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge">${svgIcon('options', 18)}</div>
+        <div>
+          <div class="kf-modal-title">${UI_LABELS.optionsTitle}</div>
+          <span class="kf-modal-subtitle">CHANGES ARE SAVED AUTOMATICALLY</span>
+        </div>
+      </div>
+    `;
+    const closeBtn = this.makeHtmlBtn(
+      `${svgIcon('check', 13)}<span>DONE</span>${doneKey ? `<span class="kf-kbd kf-kbd-cyan">${doneKey}</span>` : ''}`,
+      'kf-btn kf-btn-sm kf-btn-primary',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onCloseOverlay();
+      },
+    );
     closeBtn.dataset.testid = 'options-close-btn';
     header.appendChild(closeBtn);
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body kf-scroll';
 
-    // Target FPS (30 | 60 | 120)
-    const fpsRow = this.makeOptionRow('TARGET RENDER FPS', 'Fixed 60 Hz sim with smooth high-FPS pacing');
-    const fpsBtns = document.createElement('div');
-    fpsBtns.style.display = 'flex';
-    fpsBtns.style.gap = '6px';
+    const cols = document.createElement('div');
+    cols.className = 'kf-grid-2';
+    cols.style.gap = '14px';
+
+    // ---- LEFT COLUMN: DISPLAY & VISUALS + ART PACK ----
+    const leftCol = document.createElement('div');
+    leftCol.style.display = 'flex';
+    leftCol.style.flexDirection = 'column';
+    leftCol.style.gap = '12px';
+
+    const displayCard = this.makeSectionCard('display', 'DISPLAY & VISUALS');
+
+    // Target FPS Segmented Control
+    const fpsRow = this.makeOptionRow('TARGET FPS', '60 Hz sim · high-FPS pacing');
+    const fpsSeg = document.createElement('div');
+    fpsSeg.className = 'kf-seg-group';
     for (const fps of [30, 60, 120] as TargetFps[]) {
-      const b = this.makeBtn(
-        `${fps} FPS`,
-        rs.targetFps === fps ? 'kf-btn kf-btn-sm kf-btn-primary' : 'kf-btn kf-btn-sm',
-        () => {
-          this.cb.onPlayUiClick();
-          this.cb.onUpdateRenderSettings({ targetFps: fps });
-        },
-      );
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `kf-seg-btn${rs.targetFps === fps ? ' active' : ''}`;
+      b.textContent = `${fps}`;
       b.dataset.testid = `opt-fps-${fps}`;
-      fpsBtns.appendChild(b);
+      b.addEventListener('click', () => {
+        this.cb.onPlayUiClick();
+        this.cb.onUpdateRenderSettings({ targetFps: fps });
+      });
+      fpsSeg.appendChild(b);
     }
-    fpsRow.appendChild(fpsBtns);
+    fpsRow.appendChild(fpsSeg);
 
     // Classic 60 FPS Native Pixel-Snap
-    const snapRow = this.makeOptionRow(
-      'CLASSIC 60 FPS PIXEL-SNAP',
-      'Locks camera & sprite coordinates to exact integer 640x360 texels',
+    const snapRow = this.makeOptionRow('PIXEL-SNAP 60', 'Exact integer 640×360 texel lock');
+    snapRow.appendChild(
+      this.makeToggleBtn(
+        rs.pixelSnap60,
+        rs.pixelSnap60 ? 'LOCKED' : 'SMOOTH',
+        'gold',
+        () => this.cb.onUpdateRenderSettings({ pixelSnap60: !rs.pixelSnap60 }),
+        'opt-pixelsnap-toggle',
+      ),
     );
-    const snapBtn = this.makeBtn(
-      rs.pixelSnap60 ? 'ENABLED' : 'SMOOTH INTERP',
-      rs.pixelSnap60 ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateRenderSettings({ pixelSnap60: !rs.pixelSnap60 });
-      },
-    );
-    snapBtn.dataset.testid = 'opt-pixelsnap-toggle';
-    snapRow.appendChild(snapBtn);
 
-    // Master / Music / SFX Volume sliders + Mute
-    const muteRow = this.makeOptionRow('AUDIO OUTPUT', 'Mute all music, ambience, and sound effects');
-    const muteBtn = this.makeBtn(
-      as.muted ? 'MUTED' : 'ACTIVE',
-      as.muted ? 'kf-btn kf-btn-sm kf-btn-danger' : 'kf-btn kf-btn-sm kf-btn-emerald',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateAudioSettings({ muted: !as.muted });
-      },
+    // Screenshake Slider
+    const shakeRow = this.makeSliderRow(
+      'SCREENSHAKE',
+      rs.screenshakeScale,
+      0,
+      2,
+      0.1,
+      (v) => `${Math.round(v * 100)}%`,
+      (v) => this.cb.onUpdateRenderSettings({ screenshakeScale: v }),
     );
-    muteRow.appendChild(muteBtn);
 
+    // Lighting Toggle
+    const lightRow = this.makeOptionRow('2D DYNAMIC LIGHTING', 'Muzzle blooms & point lights');
+    lightRow.appendChild(
+      this.makeToggleBtn(rs.lightingEnabled, rs.lightingEnabled ? 'ON' : 'OFF', '', () =>
+        this.cb.onUpdateRenderSettings({ lightingEnabled: !rs.lightingEnabled }),
+      ),
+    );
+
+    // Blood Toggle
+    const bloodRow = this.makeOptionRow('BLOOD & GORE', 'Persistent decals & overkill gibs');
+    bloodRow.appendChild(
+      this.makeToggleBtn(rs.bloodEnabled, rs.bloodEnabled ? 'ON' : 'OFF', '', () =>
+        this.cb.onUpdateRenderSettings({ bloodEnabled: !rs.bloodEnabled }),
+      ),
+    );
+
+    displayCard.append(fpsRow, snapRow, shakeRow, lightRow, bloodRow);
+
+    // Art Pack Card
+    const packCard = this.makeSectionCard('pack', 'ART & AUDIO PACK');
+    const packRow = this.makeOptionRow(
+      'ACTIVE ASSET PACK',
+      customPackAvailable ? 'Live zero-restart pack switch' : 'Load folder from Title Screen',
+    );
+    const packSeg = document.createElement('div');
+    packSeg.className = 'kf-seg-group';
+    const biBtn = document.createElement('button');
+    biBtn.type = 'button';
+    biBtn.className = `kf-seg-btn${packMode === 'builtin' ? ' active' : ''}`;
+    biBtn.textContent = 'BUILT-IN';
+    biBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      void this.cb.onSetPackMode('builtin');
+    });
+    const cuBtn = document.createElement('button');
+    cuBtn.type = 'button';
+    cuBtn.className = `kf-seg-btn${packMode === 'custom' ? ' active gold' : ''}`;
+    cuBtn.textContent = 'CUSTOM';
+    cuBtn.disabled = !customPackAvailable;
+    cuBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      void this.cb.onSetPackMode('custom');
+    });
+    packSeg.append(biBtn, cuBtn);
+    packRow.appendChild(packSeg);
+    packCard.appendChild(packRow);
+
+    leftCol.append(displayCard, packCard);
+
+    // ---- RIGHT COLUMN: AUDIO MIXER + CONTROLLER & TOUCH ----
+    const rightCol = document.createElement('div');
+    rightCol.style.display = 'flex';
+    rightCol.style.flexDirection = 'column';
+    rightCol.style.gap = '12px';
+
+    const audioCard = this.makeSectionCard(as.muted ? 'mute' : 'volume', 'AUDIO MIXER');
+    const muteRow = this.makeOptionRow('AUDIO OUTPUT', 'Master audio enable / mute');
+    muteRow.appendChild(
+      this.makeToggleBtn(
+        !as.muted,
+        as.muted ? 'MUTED' : 'ACTIVE',
+        '',
+        () => this.cb.onUpdateAudioSettings({ muted: !as.muted }),
+      ),
+    );
     const masterRow = this.makeSliderRow(
       'MASTER VOLUME',
       as.masterVolume,
@@ -1007,85 +1251,25 @@ export class Overlays {
       (v) => `${Math.round(v * 100)}%`,
       (v) => this.cb.onUpdateAudioSettings({ sfxVolume: v }),
     );
-    const shakeRow = this.makeSliderRow(
-      'SCREENSHAKE INTENSITY',
-      rs.screenshakeScale,
-      0,
-      2,
-      0.1,
-      (v) => `${Math.round(v * 100)}%`,
-      (v) => this.cb.onUpdateRenderSettings({ screenshakeScale: v }),
-    );
+    audioCard.append(muteRow, masterRow, musicRow, sfxRow);
 
-    // Lighting & Blood toggles
-    const lightRow = this.makeOptionRow('DYNAMIC 2D LIGHTING', 'Additive point lights, muzzle blooms & glowing eyes');
-    const lightBtn = this.makeBtn(
-      rs.lightingEnabled ? 'ON' : 'OFF',
-      rs.lightingEnabled ? 'kf-btn kf-btn-sm kf-btn-emerald' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateRenderSettings({ lightingEnabled: !rs.lightingEnabled });
-      },
-    );
-    lightRow.appendChild(lightBtn);
-
-    const bloodRow = this.makeOptionRow('BLOOD DECALS & GORE', 'Persistent floor splatters and overkill gibs');
-    const bloodBtn = this.makeBtn(
-      rs.bloodEnabled ? 'ON' : 'OFF',
-      rs.bloodEnabled ? 'kf-btn kf-btn-sm kf-btn-emerald' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateRenderSettings({ bloodEnabled: !rs.bloodEnabled });
-      },
-    );
-    bloodRow.appendChild(bloodBtn);
-
-    // Live Pack Mode Toggle
-    const packRow = this.makeOptionRow(
-      'ART & AUDIO PACK MODE',
-      customPackAvailable
-        ? 'Instant zero-restart switch between Built-In Krunked Art and Owned Custom Pack'
-        : 'Load an extracted pack folder from the Title Screen to enable Custom Pack',
-    );
-    const packBtns = document.createElement('div');
-    packBtns.style.display = 'flex';
-    packBtns.style.gap = '6px';
-    const biBtn = this.makeBtn(
-      'BUILT-IN ART',
-      packMode === 'builtin' ? 'kf-btn kf-btn-sm kf-btn-primary' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        void this.cb.onSetPackMode('builtin');
-      },
-    );
-    const cuBtn = this.makeBtn(
-      'CUSTOM PACK',
-      packMode === 'custom' ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        void this.cb.onSetPackMode('custom');
-      },
-    );
-    cuBtn.disabled = !customPackAvailable;
-    packBtns.append(biBtn, cuBtn);
-    packRow.appendChild(packBtns);
-
-    // ---- CONTROLLER & TOUCH SECTION ----
+    // Controller & Touch Card
     const ctrlSection = document.createElement('div');
-    ctrlSection.className = 'kf-controller-section';
+    ctrlSection.className = 'kf-card kf-controller-section';
     ctrlSection.dataset.testid = 'options-controller-section';
 
     const ctrlSectionHeader = document.createElement('div');
     ctrlSectionHeader.className = 'kf-controller-section-title';
-
     const ctrlTitle = document.createElement('span');
-    ctrlTitle.textContent = 'CONTROLLER & TOUCH';
+    ctrlTitle.style.display = 'inline-flex';
+    ctrlTitle.style.alignItems = 'center';
+    ctrlTitle.style.gap = '6px';
+    ctrlTitle.innerHTML = `${svgIcon('gamepad', 14)}<span>CONTROLLER &amp; TOUCH</span>`;
 
     const statusMeta = formatControllerStatusLabel(controllerStatus);
-    const statusBadge = makeControllerBadgeEl(
-      statusMeta,
-      'options-controller-badge',
-    );
+    const statusBadge = makeControllerBadgeEl(statusMeta, 'options-controller-badge');
+    statusBadge.style.padding = '3px 8px';
+    statusBadge.style.fontSize = '10px';
     ctrlSectionHeader.append(ctrlTitle, statusBadge);
 
     const deadzoneRow = this.makeSliderRow(
@@ -1099,44 +1283,30 @@ export class Overlays {
       'opt-controller-deadzone',
     );
 
-    const rumbleRow = this.makeOptionRow(
-      'CONTROLLER VIBRATION / RUMBLE',
-      'Haptic rumble pulses on firing, damage, explosions & boss phases',
+    const rumbleRow = this.makeOptionRow('HAPTIC RUMBLE', 'Vibration on fire, hits & bosses');
+    rumbleRow.appendChild(
+      this.makeToggleBtn(
+        cs.vibrationEnabled,
+        cs.vibrationEnabled ? 'ON' : 'OFF',
+        '',
+        () => this.cb.onUpdateControllerSettings({ vibrationEnabled: !cs.vibrationEnabled }),
+        'opt-controller-rumble',
+      ),
     );
-    const rumbleBtn = this.makeBtn(
-      cs.vibrationEnabled ? 'ON' : 'OFF',
-      cs.vibrationEnabled ? 'kf-btn kf-btn-sm kf-btn-emerald' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateControllerSettings({
-          vibrationEnabled: !cs.vibrationEnabled,
-        });
-      },
-    );
-    rumbleBtn.dataset.testid = 'opt-controller-rumble';
-    rumbleRow.appendChild(rumbleBtn);
 
-    const autoFireRow = this.makeOptionRow(
-      'TWIN-STICK AUTO-FIRE (GAMEPAD)',
-      'Deflecting right stick fires automatically on physical gamepads (always on for Touch)',
+    const autoFireRow = this.makeOptionRow('STICK AUTO-FIRE', 'Right-stick deflection fires');
+    autoFireRow.appendChild(
+      this.makeToggleBtn(
+        cs.twinStickAutoFire,
+        cs.twinStickAutoFire ? 'ON' : 'OFF',
+        'gold',
+        () => this.cb.onUpdateControllerSettings({ twinStickAutoFire: !cs.twinStickAutoFire }),
+        'opt-controller-autofire',
+      ),
     );
-    const autoFireBtn = this.makeBtn(
-      cs.twinStickAutoFire ? 'ON' : 'OFF',
-      cs.twinStickAutoFire ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onUpdateControllerSettings({
-          twinStickAutoFire: !cs.twinStickAutoFire,
-        });
-      },
-    );
-    autoFireBtn.dataset.testid = 'opt-controller-autofire';
-    autoFireRow.appendChild(autoFireBtn);
 
     const touchOpacityRow = this.makeSliderRow(
-      controllerStatus?.touchSensed
-        ? 'TOUCH STICK OPACITY'
-        : 'TOUCH STICK OPACITY (MOBILE / TESLA)',
+      'TOUCH OPACITY',
       cs.touchOpacity,
       0.3,
       1.0,
@@ -1147,9 +1317,7 @@ export class Overlays {
     );
 
     const touchScaleRow = this.makeSliderRow(
-      controllerStatus?.touchSensed
-        ? 'TOUCH STICK SIZE'
-        : 'TOUCH STICK SIZE (MOBILE / TESLA)',
+      'TOUCH SIZE',
       cs.touchScale,
       0.75,
       1.35,
@@ -1168,30 +1336,55 @@ export class Overlays {
       touchScaleRow,
     );
 
-    body.append(
-      fpsRow,
-      snapRow,
-      muteRow,
-      masterRow,
-      musicRow,
-      sfxRow,
-      shakeRow,
-      lightRow,
-      bloodRow,
-      packRow,
-      ctrlSection,
-    );
+    rightCol.append(audioCard, ctrlSection);
+    cols.append(leftCol, rightCol);
+    body.appendChild(cols);
     modal.append(header, body);
     this.backdrop.appendChild(modal);
+  }
+
+  private makeSectionCard(icon: IconName, title: string): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'kf-card';
+    card.style.gap = '7px';
+    const hdr = document.createElement('div');
+    hdr.className = 'kf-controller-section-title';
+    hdr.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;">${svgIcon(icon, 14)}<span>${title}</span></span>`;
+    card.appendChild(hdr);
+    return card;
+  }
+
+  private makeToggleBtn(
+    isOn: boolean,
+    label: string,
+    variant: '' | 'gold' | 'danger',
+    onClick: () => void,
+    testId?: string,
+  ): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `kf-toggle${variant ? ` ${variant}` : ''}${isOn ? ' on' : ''}`;
+    if (testId) btn.dataset.testid = testId;
+    btn.innerHTML = `
+      <span class="kf-toggle-track"><span class="kf-toggle-thumb"></span></span>
+      <span>${label}</span>
+    `;
+    btn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      onClick();
+    });
+    return btn;
   }
 
   private makeOptionRow(title: string, subtitle: string): HTMLElement {
     const row = document.createElement('div');
     row.className = 'kf-option-row';
+    row.style.padding = '7px 10px';
     const left = document.createElement('div');
+    left.style.minWidth = '0';
     left.innerHTML = `
-      <div style="font-weight:800;font-size:12px;color:#fff;">${title}</div>
-      <div style="font-size:10px;color:var(--kf-text-dim);">${subtitle}</div>
+      <div class="kf-option-title" style="font-size:12px;">${title}</div>
+      <div class="kf-option-desc" style="font-size:10.5px;">${subtitle}</div>
     `;
     row.appendChild(left);
     return row;
@@ -1209,33 +1402,45 @@ export class Overlays {
   ): HTMLElement {
     const row = document.createElement('div');
     row.className = 'kf-option-row';
+    row.style.padding = '7px 10px';
     const left = document.createElement('div');
-    left.innerHTML = `<div style="font-weight:800;font-size:12px;color:#fff;">${title}</div>`;
+    left.innerHTML = `<div class="kf-option-title" style="font-size:12px;">${title}</div>`;
 
     const right = document.createElement('div');
     right.style.display = 'flex';
     right.style.alignItems = 'center';
-    right.style.gap = '10px';
+    right.style.gap = '9px';
 
     const valLabel = document.createElement('span');
-    valLabel.style.width = '46px';
+    valLabel.style.width = '40px';
     valLabel.style.textAlign = 'right';
+    valLabel.style.fontFamily = 'var(--kf-font)';
+    valLabel.style.fontSize = '11px';
+    valLabel.style.fontWeight = '800';
     valLabel.style.color = 'var(--kf-cyan)';
     valLabel.textContent = format(value);
 
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.className = 'kf-range';
+    slider.style.width = '144px';
     slider.min = String(min);
     slider.max = String(max);
     slider.step = String(step);
     slider.value = String(value);
+    const updatePct = (v: number) => {
+      const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+      slider.style.setProperty('--val-pct', `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`);
+    };
+    updatePct(value);
+
     if (testId) {
       slider.dataset.testid = testId;
     }
     slider.addEventListener('input', () => {
       const v = Number(slider.value);
       valLabel.textContent = format(v);
+      updatePct(v);
       onChange(v);
     });
 
@@ -1245,49 +1450,75 @@ export class Overlays {
   }
 
   // ==========================================================================
-  // 6. KEYBINDS & CONTROLLER / TOUCH LAYOUT MODAL
+  // 6. KEYBINDS & CONTROLLER / TOUCH LAYOUT (2-COLUMN KEYCAPS + COMPACT REF)
   // ==========================================================================
 
   private buildKeybinds(
     save: SaveData,
     rebindingAction: KeybindAction | null,
+    isFreshOpen: boolean,
     controllerStatus?: ControllerStatus,
     prompts?: GamepadGlyphSet,
   ): void {
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-cyan kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-cyan kf-modal${isFreshOpen ? ' kf-entering' : ''}`;
+    modal.style.width = 'min(920px, 95vw)';
     modal.dataset.testid = 'keybinds-modal';
 
     const activeDevice = controllerStatus?.activeDevice ?? 'keyboard';
-    const doneLabel =
+    const doneKey =
       activeDevice === 'touch'
-        ? 'DONE'
+        ? ''
         : activeDevice === 'gamepad' && prompts
-          ? `DONE ${formatPromptTag(prompts.cancel)}`
-          : 'DONE [ESC]';
+          ? stripBrackets(prompts.cancel)
+          : 'ESC';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
-    header.innerHTML = `<span class="kf-modal-title">KEYBINDS & CONTROLS</span><span class="kf-modal-subtitle">KEYBOARD · MOUSE · GAMEPAD · TOUCH</span>`;
+    header.innerHTML = `
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge">${svgIcon('keybinds', 18)}</div>
+        <div>
+          <div class="kf-modal-title">KEYBINDS &amp; CONTROLS</div>
+          <span class="kf-modal-subtitle">CLICK ANY KEYCAP TO REBIND · KEYBOARD · GAMEPAD · TOUCH</span>
+        </div>
+      </div>
+    `;
 
     const rightHdr = document.createElement('div');
     rightHdr.style.display = 'flex';
-    rightHdr.style.gap = '6px';
-    const resetBtn = this.makeBtn('RESET DEFAULTS', 'kf-btn kf-btn-sm kf-btn-gold', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onResetKeybinds();
-    });
+    rightHdr.style.gap = '7px';
+    const resetBtn = this.makeHtmlBtn(
+      `${svgIcon('retry', 13)}<span>RESET</span>`,
+      'kf-btn kf-btn-sm kf-btn-gold',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onResetKeybinds();
+      },
+    );
     resetBtn.dataset.testid = 'keybinds-reset-btn';
-    const closeBtn = this.makeBtn(doneLabel, 'kf-btn kf-btn-sm kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onCloseOverlay();
-    });
+    const closeBtn = this.makeHtmlBtn(
+      `${svgIcon('check', 13)}<span>DONE</span>${doneKey ? `<span class="kf-kbd kf-kbd-cyan">${doneKey}</span>` : ''}`,
+      'kf-btn kf-btn-sm kf-btn-primary',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onCloseOverlay();
+      },
+    );
     closeBtn.dataset.testid = 'keybinds-close-btn';
     rightHdr.append(resetBtn, closeBtn);
     header.appendChild(rightHdr);
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body kf-scroll';
+    body.style.display = 'flex';
+    body.style.flexDirection = 'column';
+    body.style.gap = '9px';
+    body.style.padding = '12px 16px';
+
+    // 2-Column Keyboard Keycap Grid
+    const kbGrid = document.createElement('div');
+    kbGrid.className = 'kf-keybind-grid';
 
     for (const meta of KEYBIND_ACTIONS) {
       const boundCode = save.keybinds[meta.action] ?? '';
@@ -1295,29 +1526,31 @@ export class Overlays {
       const row = document.createElement('div');
       row.className = 'kf-keybind-row';
 
-      const lbl = document.createElement('strong');
-      lbl.textContent = meta.label;
+      const info = document.createElement('div');
+      info.style.minWidth = '0';
+      info.innerHTML = `
+        <div style="font-family:var(--kf-font-display);font-size:12.5px;font-weight:700;letter-spacing:0.06em;color:#fff;">${meta.label}</div>
+        <div style="font-size:10px;color:var(--kf-text-muted);">ALT: ${meta.secondaryHint}</div>
+      `;
 
-      const btn = this.makeBtn(
-        listening ? 'PRESS ANY KEY...' : formatKeyCode(boundCode),
-        listening ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm kf-btn-primary',
-        () => {
-          this.cb.onPlayUiClick();
-          this.cb.onStartRebind(meta.action);
-        },
-      );
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = listening
+        ? 'kf-btn kf-btn-sm kf-btn-gold'
+        : 'kf-kbd kf-kbd-lg kf-kbd-cyan';
+      btn.style.cursor = 'pointer';
+      btn.textContent = listening ? 'PRESS KEY...' : formatKeyCode(boundCode);
       btn.dataset.testid = `keybind-btn-${meta.action}`;
+      btn.addEventListener('click', () => {
+        this.cb.onPlayUiClick();
+        this.cb.onStartRebind(meta.action);
+      });
 
-      const hint = document.createElement('span');
-      hint.style.fontSize = '10px';
-      hint.style.color = 'var(--kf-text-dim)';
-      hint.textContent = `ALT: ${meta.secondaryHint}`;
-
-      row.append(lbl, btn, hint);
-      body.appendChild(row);
+      row.append(info, btn);
+      kbGrid.appendChild(row);
     }
 
-    // ---- CONTROLLER & TOUCH LAYOUT REFERENCE PANEL ----
+    // Controller & Touch Reference Card
     const profile = controllerStatus?.gamepadProfile ?? 'xbox';
     const glyphs = getGamepadGlyphs(profile);
     const statusMeta = formatControllerStatusLabel(controllerStatus);
@@ -1325,9 +1558,9 @@ export class Overlays {
       profile === 'xbox'
         ? 'XBOX / XINPUT LAYOUT'
         : profile === 'playstation'
-          ? 'PLAYSTATION (DUALSENSE / DUALSHOCK) LAYOUT'
+          ? 'PLAYSTATION (DUALSENSE / DUALSHOCK)'
           : profile === 'nintendo'
-            ? 'NINTENDO SWITCH PRO / JOY-CON LAYOUT'
+            ? 'NINTENDO SWITCH PRO / JOY-CON'
             : profile === 'steamdeck'
               ? 'STEAM DECK LAYOUT'
               : profile === 'tesla'
@@ -1335,61 +1568,66 @@ export class Overlays {
                 : 'STANDARD GAMEPAD LAYOUT';
 
     const refCard = document.createElement('div');
-    refCard.className = 'kf-controller-section';
+    refCard.className = 'kf-card kf-controller-section';
     refCard.dataset.testid = 'keybinds-controller-layout';
 
     const refTop = document.createElement('div');
     refTop.className = 'kf-controller-section-title';
     refTop.innerHTML = `
-      <div>
-        <div>CONTROLLER & TOUCH LAYOUT</div>
-        <div style="font-size:10px;color:var(--kf-text-dim);letter-spacing:0.06em;font-weight:600;margin-top:2px;">${familyLabel}</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${svgIcon('gamepad', 15)}
+        <span>CONTROLLER &amp; TOUCH · <span style="color:var(--kf-text-dim);">${familyLabel}</span></span>
       </div>
     `;
     const refBadge = makeControllerBadgeEl(statusMeta);
+    refBadge.style.padding = '3px 9px';
+    refBadge.style.fontSize = '10px';
     refTop.appendChild(refBadge);
 
     const gpRows: Array<[string, string]> = [
-      ['MOVE / MENU NAV', `${glyphs.move} / D-PAD`],
-      ['TWIN-STICK AIM / SCROLL', glyphs.aim],
+      ['MOVE / NAV', `${glyphs.move} / D-PAD`],
+      ['AIM / SCROLL', glyphs.aim],
       ['FIRE WEAPON', glyphs.fire],
-      ['OUTCAST ABILITY', glyphs.ability],
-      ['OUTCAST POWER', glyphs.power],
+      ['ABILITY', glyphs.ability],
+      ['POWER', glyphs.power],
       ['SWAP WEAPON', glyphs.swap],
-      ['INTERACT / CONFIRM', `${glyphs.interact} (${glyphs.confirm})`],
-      ['VENT HEAT / BACK', `${glyphs.vent} (${glyphs.cancel})`],
+      ['USE / CONFIRM', `${glyphs.interact} (${glyphs.confirm})`],
+      ['VENT / BACK', `${glyphs.vent} (${glyphs.cancel})`],
       ['WORKBENCH', glyphs.workbench],
-      ['PAUSE / MENU', glyphs.pause],
-      ['SWITCH TABS / SLOTS', `${glyphs.tabPrev} / ${glyphs.tabNext}`],
+      ['PAUSE MENU', glyphs.pause],
+      ['SWITCH TABS', `${glyphs.tabPrev} / ${glyphs.tabNext}`],
     ];
 
     const gpGrid = document.createElement('div');
     gpGrid.className = 'kf-controller-grid';
+    gpGrid.style.gridTemplateColumns = 'repeat(3, minmax(0, 1fr))';
+    gpGrid.style.gap = '6px 8px';
     for (const [actionLabel, glyphLabel] of gpRows) {
       const cell = document.createElement('div');
       cell.className = 'kf-controller-map-row';
+      cell.style.padding = '5px 8px';
+      cell.style.fontSize = '11px';
       cell.innerHTML = `
-        <span style="color:var(--kf-text-dim);">${actionLabel}</span>
+        <span style="color:var(--kf-text-dim);font-family:var(--kf-font-display);font-weight:700;letter-spacing:0.05em;">${actionLabel}</span>
         <span class="kf-glyph-chip">${glyphLabel}</span>
       `;
       gpGrid.appendChild(cell);
     }
 
     const touchRef = document.createElement('div');
-    touchRef.style.marginTop = '8px';
-    touchRef.style.padding = '7px 9px';
-    touchRef.style.background = 'var(--kf-bg-1)';
+    touchRef.style.padding = '7px 10px';
+    touchRef.style.borderRadius = '4px';
+    touchRef.style.background = 'rgba(10, 15, 24, 0.85)';
     touchRef.style.borderLeft = '3px solid var(--kf-gold)';
-    touchRef.style.fontSize = '10px';
+    touchRef.style.fontSize = '11px';
     touchRef.style.color = 'var(--kf-text-dim)';
     touchRef.innerHTML = `
-      <div style="font-weight:800;color:var(--kf-amber);letter-spacing:0.08em;margin-bottom:3px;">TOUCH DUAL-STICK CONTROLS (MOBILE / TABLET / TESLA)</div>
-      <div><strong>LEFT STICK:</strong> Move &nbsp;·&nbsp; <strong>RIGHT STICK:</strong> Aim &amp; Auto-Fire &nbsp;·&nbsp; <strong>ARC BUTTONS:</strong> Ability, Power, Swap, Use/Vent. Translucent controls appear automatically only when touch is sensed during active play.</div>
+      <strong style="color:var(--kf-amber);font-family:var(--kf-font-display);letter-spacing:0.08em;">TOUCH DUAL-STICK (MOBILE / TESLA):</strong>
+      Left Stick moves · Right Stick aims &amp; auto-fires · Arc Buttons trigger Ability, Power, Swap &amp; Use/Vent. Auto-appears only on touch input.
     `;
 
     refCard.append(refTop, gpGrid, touchRef);
-    body.appendChild(refCard);
-
+    body.append(kbGrid, refCard);
     modal.append(header, body);
     this.backdrop.appendChild(modal);
   }
@@ -1398,29 +1636,43 @@ export class Overlays {
   // 7. VICTORY / LOOP MODE PROMPT
   // ==========================================================================
 
-  private buildVictory(state: SimState): void {
+  private buildVictory(state: SimState, isFreshOpen: boolean): void {
     const outcast = getOutcastDef(state.player.outcastId);
     const nextLoop = state.loopCount + 1;
+    const portraitUrl = getOutcastPortraitUrl(state.player.outcastId, state.player.skinId, 54);
 
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-gold kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-gold kf-modal kf-modal-md${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'victory-modal';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
-      <div>
-        <span class="kf-modal-title" style="color:var(--kf-amber);">${UI_LABELS.victoryTitle}</span>
-        <span class="kf-modal-subtitle">${UI_LABELS.victorySubtitle}</span>
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge gold">${svgIcon('trophy', 20)}</div>
+        <div>
+          <div class="kf-modal-title" style="color:var(--kf-amber);">${UI_LABELS.victoryTitle}</div>
+          <span class="kf-modal-subtitle">${UI_LABELS.victorySubtitle}</span>
+        </div>
       </div>
-      <span class="kf-pill kf-pill-gold">KRUNKEDSLAYER</span>
+      <span class="kf-pill kf-pill-gold">${svgIcon('star', 11)} KRUNKEDSLAYER</span>
     `;
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body';
     body.innerHTML = `
-      <div style="text-align:center;margin-bottom:10px;color:var(--kf-emerald);font-weight:700;">
-        ${outcast.name} VANQUISHED CORRUPTED KRUNKED AT BALDER'S SHRINE!
+      <div class="kf-summary-hero" style="border-color:rgba(255,210,87,0.45);background:linear-gradient(135deg,rgba(62,40,14,0.65),rgba(12,18,30,0.9));">
+        <div class="kf-outcast-thumb" style="width:56px;height:56px;border-color:var(--kf-amber);">
+          ${portraitUrl ? `<img class="kf-pixel-img" src="${portraitUrl}" width="50" height="50" alt="${outcast.name}">` : svgIcon('trophy', 24)}
+        </div>
+        <div style="flex:1;">
+          <div style="font-family:var(--kf-font-display);font-size:15px;font-weight:800;letter-spacing:0.08em;color:var(--kf-emerald);">
+            ${outcast.name} VANQUISHED CORRUPTED KRUNKED AT BALDER'S SHRINE!
+          </div>
+          <div style="font-size:12px;color:var(--kf-text-dim);margin-top:3px;">
+            Loop ${nextLoop} unlocks escalated enemy speed, mythic drop odds, and endless leaderboard glory.
+          </div>
+        </div>
       </div>
       ${this.renderRunSummaryGrid(state)}
     `;
@@ -1428,21 +1680,26 @@ export class Overlays {
     const footer = document.createElement('div');
     footer.className = 'kf-modal-footer';
 
-    const loopBtn = this.makeBtn(
-      `ENTER LOOP ${nextLoop} (ENDLESS RAGNAROK) ▶`,
-      'kf-btn kf-btn-gold',
+    const hubBtn = this.makeHtmlBtn(
+      `${svgIcon('hub', 14)}<span>RETURN TO HUB</span>`,
+      'kf-btn kf-btn-primary',
       () => {
         this.cb.onPlayUiClick();
+        this.cb.onReturnToHub();
+      },
+    );
+    hubBtn.dataset.testid = 'victory-hub-btn';
+
+    const loopBtn = this.makeHtmlBtn(
+      `${svgIcon('loop', 15)}<span>ENTER LOOP ${nextLoop} (ENDLESS)</span>${svgIcon('chevronRight', 13)}`,
+      'kf-btn kf-btn-gold',
+      () => {
+        this.playConfirm();
         this.cb.onStartNextLoop();
       },
     );
     loopBtn.dataset.testid = 'victory-loop-btn';
-
-    const hubBtn = this.makeBtn('RETURN TO HUB', 'kf-btn kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onReturnToHub();
-    });
-    hubBtn.dataset.testid = 'victory-hub-btn';
+    loopBtn.dataset.gpInitial = 'true';
 
     footer.append(hubBtn, loopBtn);
     modal.append(header, body, footer);
@@ -1453,39 +1710,80 @@ export class Overlays {
   // 8. GAME OVER RUN SUMMARY
   // ==========================================================================
 
-  private buildGameOver(state: SimState): void {
+  private buildGameOver(state: SimState, isFreshOpen: boolean): void {
+    const outcast = getOutcastDef(state.player.outcastId);
+    const lokiUrl = getLokiPortraitUrl(44);
+    const w0 = state.player.weapons[0];
+    const w0Def = w0 ? getWeaponDef(w0.uniqueId) : null;
+    const w0Thumb = w0Def
+      ? getWeaponThumbUrl(w0Def.ammoType, w0Def.class, w0Def.uniqueId, Boolean(w0?.golden), 52, 32)
+      : '';
+
     const modal = document.createElement('div');
-    modal.className = 'kf-panel kf-panel-crimson kf-modal kf-modal-md';
+    modal.className = `kf-panel kf-panel-crimson kf-modal kf-modal-md${isFreshOpen ? ' kf-entering' : ''}`;
     modal.dataset.testid = 'gameover-modal';
 
     const header = document.createElement('div');
     header.className = 'kf-modal-header';
     header.innerHTML = `
-      <div>
-        <span class="kf-modal-title" style="color:var(--kf-crimson);">${UI_LABELS.gameoverTitle}</span>
-        <span class="kf-modal-subtitle">${UI_LABELS.gameoverSubtitle}</span>
+      <div class="kf-modal-title-group">
+        <div class="kf-modal-icon-badge crimson">${svgIcon('skull', 19)}</div>
+        <div>
+          <div class="kf-modal-title" style="color:var(--kf-crimson);">${UI_LABELS.gameoverTitle}</div>
+          <span class="kf-modal-subtitle">${UI_LABELS.gameoverSubtitle}</span>
+        </div>
       </div>
       <span class="kf-pill kf-pill-crimson">ACT ${state.act} · LOOP ${state.loopCount}</span>
     `;
 
     const body = document.createElement('div');
     body.className = 'kf-modal-body';
-    body.innerHTML = this.renderRunSummaryGrid(state);
+    body.innerHTML = `
+      <div class="kf-summary-hero" style="border-color:rgba(255,61,94,0.42);background:linear-gradient(135deg,rgba(54,14,24,0.68),rgba(11,16,26,0.92));">
+        <div class="kf-loki-tank" style="width:52px;height:52px;">
+          ${lokiUrl ? `<img class="kf-pixel-img" src="${lokiUrl}" width="46" height="46" alt="Loki">` : svgIcon('loki', 22)}
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-family:var(--kf-font-display);font-size:11px;font-weight:800;letter-spacing:0.12em;color:var(--kf-emerald);">LOKI · CLONE BAY LOG</div>
+          <div style="font-size:12.5px;color:#edf5ff;margin-top:2px;">
+            "Splendid mess, ${outcast.name}. The Jotunn-Matic is already printing a fresher copy — try dodging next time."
+          </div>
+        </div>
+        ${
+          w0Def
+            ? `<div class="kf-loadout-chip" style="flex:0 0 auto;">
+                ${w0Thumb ? `<img class="kf-pixel-img" src="${w0Thumb}" width="38" height="24" alt="">` : ''}
+                <span>${w0Def.name}</span>
+              </div>`
+            : ''
+        }
+      </div>
+      ${this.renderRunSummaryGrid(state)}
+    `;
 
     const footer = document.createElement('div');
     footer.className = 'kf-modal-footer';
 
-    const hubBtn = this.makeBtn('RETURN TO HUB', 'kf-btn', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onReturnToHub();
-    });
+    const hubBtn = this.makeHtmlBtn(
+      `${svgIcon('hub', 14)}<span>RETURN TO HUB</span>`,
+      'kf-btn',
+      () => {
+        this.cb.onPlayUiClick();
+        this.cb.onReturnToHub();
+      },
+    );
     hubBtn.dataset.testid = 'gameover-hub-btn';
 
-    const retryBtn = this.makeBtn('RETRY RUN ▶', 'kf-btn kf-btn-primary', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onRetryRun();
-    });
+    const retryBtn = this.makeHtmlBtn(
+      `${svgIcon('retry', 14)}<span>RETRY RUN</span>${svgIcon('chevronRight', 13)}`,
+      'kf-btn kf-btn-primary',
+      () => {
+        this.playConfirm();
+        this.cb.onRetryRun();
+      },
+    );
     retryBtn.dataset.testid = 'gameover-retry-btn';
+    retryBtn.dataset.gpInitial = 'true';
 
     footer.append(hubBtn, retryBtn);
     modal.append(header, body, footer);
@@ -1495,12 +1793,12 @@ export class Overlays {
   private renderRunSummaryGrid(state: SimState): string {
     const rs = state.runStats;
     const cells = [
-      { lbl: 'SCORE', val: String(rs.score) },
-      { lbl: 'KILLS', val: String(state.player.kills) },
-      { lbl: 'ROOMS CLEARED', val: String(rs.roomsCleared) },
-      { lbl: 'BOSSES SLAIN', val: `${rs.bossesDefeated.length}/6` },
-      { lbl: 'WALLS SHATTERED', val: String(rs.wallsDestroyed) },
-      { lbl: 'RUN TIME', val: formatRunTime(rs.elapsedTicks) },
+      { lbl: 'SCORE', val: String(rs.score), color: 'var(--kf-amber)' },
+      { lbl: 'FOES SLAIN', val: String(state.player.kills), color: 'var(--kf-crimson)' },
+      { lbl: 'ROOMS CLEARED', val: String(rs.roomsCleared), color: 'var(--kf-cyan)' },
+      { lbl: 'BOSSES SLAIN', val: `${rs.bossesDefeated.length}/6`, color: 'var(--kf-emerald)' },
+      { lbl: 'WALLS SHATTERED', val: String(rs.wallsDestroyed), color: 'var(--kf-gold)' },
+      { lbl: 'RUN TIME', val: formatRunTime(rs.elapsedTicks), color: '#eef4fc' },
     ];
     return `
       <div class="kf-summary-grid">
@@ -1508,7 +1806,7 @@ export class Overlays {
           .map(
             (c) => `
           <div class="kf-summary-cell">
-            <div class="kf-summary-val">${c.val}</div>
+            <div class="kf-summary-val" style="color:${c.color};">${c.val}</div>
             <div class="kf-summary-lbl">${c.lbl}</div>
           </div>
         `,
@@ -1523,6 +1821,15 @@ export class Overlays {
     btn.type = 'button';
     btn.className = className;
     btn.textContent = text;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  private makeHtmlBtn(html: string, className: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = className;
+    btn.innerHTML = html;
     btn.addEventListener('click', onClick);
     return btn;
   }

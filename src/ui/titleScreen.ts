@@ -1,5 +1,5 @@
 // ============================================================================
-// KRUNKEDFALL — Title Screen UI (Floats over Live WebGL2 Menu Aurora Canvas)
+// KRUNKEDFALL — Sculpted Title Screen (Floats over Live WebGL2 Menu Aurora)
 // ============================================================================
 
 import type {
@@ -7,9 +7,11 @@ import type {
   ControllerStatus,
   SaveData,
 } from '../contracts/index.js';
-import { UI_LABELS } from '../data/index.js';
+import { UI_LABELS, getOutcastDef, getSkinDef } from '../data/index.js';
 import type { GamepadGlyphSet } from '../input/index.js';
 import type { CustomPackImportResult } from '../render/index.js';
+import { renderKrunkedfallEmblemSvg, svgIcon } from './icons.js';
+import { getOutcastPortraitUrl } from './spritePreview.js';
 
 function formatControllerBadge(status: ControllerStatus | undefined): {
   text: string;
@@ -63,26 +65,54 @@ function formatControllerBadge(status: ControllerStatus | undefined): {
   return null;
 }
 
-function formatFooterLegend(
+function renderFooterLegendHtml(
   status: ControllerStatus | undefined,
   prompts: GamepadGlyphSet | undefined,
 ): string {
   if (status?.activeDevice === 'touch') {
-    return 'LEFT STICK MOVE · RIGHT STICK AIM & AUTO-FIRE · TAP ABILITY / POWER / SWAP / USE';
+    return [
+      ['L-STICK', 'MOVE'],
+      ['R-STICK', 'AIM & FIRE'],
+      ['ARC', 'ABILITY / POWER / SWAP'],
+    ]
+      .map(
+        ([k, lbl]) =>
+          `<span class="kf-legend-item"><span class="kf-kbd kf-kbd-gold">${k}</span>${lbl}</span>`,
+      )
+      .join('');
   }
   if (status?.activeDevice === 'gamepad') {
     const p = prompts;
-    const move = p?.move || 'LS';
-    const aim = p?.aim || 'RS';
-    const fire = p?.fire || 'RT';
-    const abil = p?.ability || 'LT';
-    const pwr = p?.power || 'RB';
-    const swap = p?.swap || 'X';
-    const use = p?.interact || 'A';
-    const bench = p?.workbench || 'VIEW';
-    return `${move} MOVE · ${aim} AIM · ${fire} FIRE · ${abil} ABILITY · ${pwr} POWER · ${swap} SWAP · ${use} USE · ${bench} BENCH`;
+    const pairs: Array<[string, string]> = [
+      [p?.move || 'LS', 'MOVE'],
+      [p?.aim || 'RS', 'AIM'],
+      [p?.fire || 'RT', 'FIRE'],
+      [p?.ability || 'LT', 'ABILITY'],
+      [p?.power || 'RB', 'POWER'],
+      [p?.swap || 'X', 'SWAP'],
+      [p?.workbench || 'VIEW', 'BENCH'],
+    ];
+    return pairs
+      .map(
+        ([k, lbl]) =>
+          `<span class="kf-legend-item"><span class="kf-kbd kf-kbd-cyan">${k}</span>${lbl}</span>`,
+      )
+      .join('');
   }
-  return 'WASD MOVE · LMB FIRE · SPACE/RMB ABILITY · Q POWER · E SWAP/INTERACT · TAB BENCH';
+  const kbPairs: Array<[string, string]> = [
+    ['WASD', 'MOVE'],
+    ['LMB', 'FIRE'],
+    ['SPACE', 'ABILITY'],
+    ['Q', 'POWER'],
+    ['E', 'SWAP / USE'],
+    ['TAB', 'WORKBENCH'],
+  ];
+  return kbPairs
+    .map(
+      ([k, lbl]) =>
+        `<span class="kf-legend-item"><span class="kf-kbd">${k}</span>${lbl}</span>`,
+    )
+    .join('');
 }
 
 export interface TitleScreenCallbacks {
@@ -93,6 +123,7 @@ export interface TitleScreenCallbacks {
   onSetPackMode(mode: AssetPackMode): Promise<boolean>;
   onLoadCustomPack(files: FileList): Promise<CustomPackImportResult>;
   onPlayUiClick(): void;
+  onPlayUiConfirm?(): void;
 }
 
 export class TitleScreen {
@@ -132,8 +163,11 @@ export class TitleScreen {
   ): void {
     if (!this.visible) return;
 
+    const skinId = save.selectedSkins[save.selectedOutcast] ?? 'original';
     const sig = [
       hasContinue ? '1' : '0',
+      save.selectedOutcast,
+      skinId,
       packMode,
       customPackAvailable ? '1' : '0',
       save.totalKills,
@@ -159,14 +193,14 @@ export class TitleScreen {
 
     this.root.innerHTML = '';
 
-    // Top Emblem
-    const header = document.createElement('div');
-    header.className = 'kf-title-header';
-    header.innerHTML = `
-      <div class="kf-title-rune-strip" data-testid="title-eyebrow">ᛟ RAGNAROK PROTOCOL // THREE-ROCK PRISON ᛟ</div>
-      <h1 class="kf-title-logo">${UI_LABELS.gameTitle}</h1>
-      <div class="kf-title-subtitle" data-testid="title-subtitle">${UI_LABELS.gameSubtitle}</div>
-    `;
+    // ------------------------------------------------------------------------
+    // 1. TOP UTILITY BAR (Controller Badge Left | Compact Art Pack Dock Right)
+    // ------------------------------------------------------------------------
+    const topBar = document.createElement('div');
+    topBar.className = 'kf-title-topbar';
+
+    const topLeft = document.createElement('div');
+    topLeft.className = 'kf-title-top-left';
     const badgeInfo = formatControllerBadge(controllerStatus);
     if (badgeInfo) {
       const badge = document.createElement('div');
@@ -177,107 +211,49 @@ export class TitleScreen {
       const label = document.createElement('span');
       label.textContent = badgeInfo.text;
       badge.append(dot, label);
-      header.appendChild(badge);
-    }
-    this.root.appendChild(header);
-
-    // Center Menu Box
-    const menuBox = document.createElement('div');
-    menuBox.className = 'kf-panel kf-panel-cyan kf-title-menu-box';
-
-    if (hasContinue) {
-      const continueBtn = this.makeBtn(
-        `${UI_LABELS.continueButton} (${save.selectedOutcast.toUpperCase()})`,
-        'kf-btn kf-btn-emerald',
-        () => {
-          this.cb.onPlayUiClick();
-          this.cb.onContinue();
-        },
-      );
-      continueBtn.dataset.testid = 'title-continue-btn';
-      menuBox.appendChild(continueBtn);
+      topLeft.appendChild(badge);
     }
 
-    const playBtn = this.makeBtn(
-      hasContinue ? 'NEW RUN' : 'PLAY / NEW RUN',
-      'kf-btn kf-btn-primary',
-      () => {
-        this.cb.onPlayUiClick();
-        this.cb.onNewRun();
-      },
-    );
-    playBtn.dataset.testid = 'title-play-btn';
-    menuBox.appendChild(playBtn);
+    const packDock = document.createElement('div');
+    packDock.className = 'kf-title-pack-dock';
 
-    const optRow = document.createElement('div');
-    optRow.className = 'kf-title-btn-row';
-    const optBtn = this.makeBtn('OPTIONS', 'kf-btn', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onOpenOptions();
-    });
-    optBtn.dataset.testid = 'title-options-btn';
+    const packPill = document.createElement('div');
+    packPill.className = 'kf-title-pack-pill';
 
-    const kbBtn = this.makeBtn('KEYBINDS', 'kf-btn', () => {
-      this.cb.onPlayUiClick();
-      this.cb.onOpenKeybinds();
-    });
-    kbBtn.dataset.testid = 'title-keybinds-btn';
+    const packLabel = document.createElement('span');
+    packLabel.className = 'kf-title-pack-label';
+    packLabel.innerHTML = `${svgIcon('pack', 13)} ART PACK`;
 
-    optRow.append(optBtn, kbBtn);
-    menuBox.appendChild(optRow);
+    const segGroup = document.createElement('div');
+    segGroup.className = 'kf-seg-group';
 
-    // Dual-Mode Art Pack Section
-    const packBar = document.createElement('div');
-    packBar.className = 'kf-title-pack-bar';
-
-    const packTop = document.createElement('div');
-    packTop.className = 'kf-title-pack-top';
-
-    const activePill = document.createElement('span');
-    activePill.className =
-      packMode === 'custom' ? 'kf-pill kf-pill-gold' : 'kf-pill kf-pill-cyan';
-    activePill.textContent =
-      packMode === 'custom' ? 'ACTIVE: CUSTOM PACK' : 'ACTIVE: BUILT-IN ART';
-
-    const availPill = document.createElement('span');
-    availPill.className = customPackAvailable
-      ? 'kf-pill kf-pill-emerald'
-      : 'kf-pill';
-    availPill.textContent = customPackAvailable
-      ? 'CUSTOM PACK READY'
-      : 'BUILT-IN STANDALONE';
-
-    packTop.append(activePill, availPill);
-    packBar.appendChild(packTop);
-
-    const toggleRow = document.createElement('div');
-    toggleRow.className = 'kf-title-pack-actions';
-
-    const builtinBtn = this.makeBtn(
-      UI_LABELS.packBuiltinLabel,
-      packMode === 'builtin' ? 'kf-btn kf-btn-sm kf-btn-primary' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        void this.handleSwitchPack('builtin');
-      },
-    );
+    const builtinBtn = document.createElement('button');
+    builtinBtn.type = 'button';
+    builtinBtn.className = `kf-seg-btn${packMode === 'builtin' ? ' active' : ''}`;
+    builtinBtn.textContent = 'BUILT-IN';
+    builtinBtn.title = UI_LABELS.packBuiltinLabel;
     builtinBtn.dataset.testid = 'pack-builtin-btn';
+    builtinBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      void this.handleSwitchPack('builtin');
+    });
 
-    const customBtn = this.makeBtn(
-      UI_LABELS.packCustomLabel,
-      packMode === 'custom' ? 'kf-btn kf-btn-sm kf-btn-gold' : 'kf-btn kf-btn-sm',
-      () => {
-        this.cb.onPlayUiClick();
-        void this.handleSwitchPack('custom');
-      },
-    );
+    const customBtn = document.createElement('button');
+    customBtn.type = 'button';
+    customBtn.className = `kf-seg-btn gold${packMode === 'custom' ? ' active' : ''}`;
+    customBtn.textContent = customPackAvailable ? 'CUSTOM' : 'CUSTOM';
+    customBtn.title = customPackAvailable
+      ? UI_LABELS.packCustomLabel
+      : 'Mount a Custom Pack folder first';
     customBtn.disabled = !customPackAvailable || this.busy;
     customBtn.dataset.testid = 'pack-custom-btn';
+    customBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      void this.handleSwitchPack('custom');
+    });
 
-    toggleRow.append(builtinBtn, customBtn);
-    packBar.appendChild(toggleRow);
+    segGroup.append(builtinBtn, customBtn);
 
-    // Hidden Folder Picker (<input type="file" webkitdirectory multiple>)
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.multiple = true;
@@ -291,18 +267,20 @@ export class TitleScreen {
       fileInput.value = '';
     });
 
-    const loadPackBtn = this.makeBtn(
-      this.busy ? 'MOUNTING PACK...' : UI_LABELS.loadCustomPackLabel,
-      'kf-btn kf-btn-sm kf-btn-gold',
-      () => {
-        this.cb.onPlayUiClick();
-        fileInput.click();
-      },
-    );
+    const loadPackBtn = document.createElement('button');
+    loadPackBtn.type = 'button';
+    loadPackBtn.className = 'kf-btn kf-btn-sm kf-btn-ghost';
+    loadPackBtn.innerHTML = `${svgIcon('folder', 13)}<span>${this.busy ? 'MOUNTING...' : 'LOAD'}</span>`;
+    loadPackBtn.title = UI_LABELS.loadCustomPackLabel;
     loadPackBtn.disabled = this.busy;
     loadPackBtn.dataset.testid = 'load-custom-pack-btn';
+    loadPackBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      fileInput.click();
+    });
 
-    packBar.append(loadPackBtn, fileInput);
+    packPill.append(packLabel, segGroup, loadPackBtn, fileInput);
+    packDock.appendChild(packPill);
 
     if (this.packMessage) {
       const msg = document.createElement('div');
@@ -310,19 +288,112 @@ export class TitleScreen {
         ? 'kf-title-pack-msg error'
         : 'kf-title-pack-msg';
       msg.textContent = this.packMessage;
-      packBar.appendChild(msg);
+      packDock.appendChild(msg);
     }
 
-    menuBox.appendChild(packBar);
-    this.root.appendChild(menuBox);
+    topBar.append(topLeft, packDock);
+    this.root.appendChild(topBar);
 
-    // Bottom Telemetry / Controls Strip
+    // ------------------------------------------------------------------------
+    // 2. CENTER HERO: SCULPTED METALLIC EMBLEM + SLEEK COMMAND MENU
+    // ------------------------------------------------------------------------
+    const center = document.createElement('div');
+    center.className = 'kf-title-center';
+
+    const header = document.createElement('div');
+    header.className = 'kf-title-header';
+    header.innerHTML = `
+      <div class="kf-title-rune-strip" data-testid="title-eyebrow">ᛟ RAGNAROK PROTOCOL · THREE-ROCK PRISON ᛟ</div>
+      <div class="kf-emblem-wrap" aria-label="${UI_LABELS.gameTitle}">${renderKrunkedfallEmblemSvg()}</div>
+      <div class="kf-title-subtitle" data-testid="title-subtitle">${UI_LABELS.gameSubtitle}</div>
+    `;
+
+    const menuBox = document.createElement('div');
+    menuBox.className = 'kf-title-menu-box';
+
+    if (hasContinue) {
+      const outcast = getOutcastDef(save.selectedOutcast);
+      const skin = getSkinDef(skinId);
+      const portraitUrl = getOutcastPortraitUrl(outcast.id, skin.id, 40, 0);
+
+      const continueBtn = document.createElement('button');
+      continueBtn.type = 'button';
+      continueBtn.className = 'kf-title-continue-card';
+      continueBtn.dataset.testid = 'title-continue-btn';
+      continueBtn.dataset.gpInitial = 'true';
+      continueBtn.innerHTML = `
+        <div class="kf-title-continue-portrait">
+          ${portraitUrl ? `<img class="kf-pixel-img" src="${portraitUrl}" width="36" height="36" alt="${outcast.name}" />` : svgIcon('clone', 22)}
+        </div>
+        <div class="kf-title-continue-meta">
+          <span class="kf-title-continue-kicker">${UI_LABELS.continueButton}</span>
+          <span class="kf-title-continue-sub">${outcast.name} · ${skin.name} · ${save.unspentSkillPoints} SP</span>
+        </div>
+        ${svgIcon('chevronRight', 20)}
+      `;
+      continueBtn.addEventListener('click', () => {
+        (this.cb.onPlayUiConfirm ?? this.cb.onPlayUiClick)();
+        this.cb.onContinue();
+      });
+      menuBox.appendChild(continueBtn);
+    }
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'kf-btn kf-btn-lg kf-btn-primary';
+    playBtn.innerHTML = `${svgIcon('play', 16)}<span>${hasContinue ? 'START NEW RUN' : 'PLAY / NEW RUN'}</span>`;
+    playBtn.dataset.testid = 'title-play-btn';
+    if (!hasContinue) {
+      playBtn.dataset.gpInitial = 'true';
+    }
+    playBtn.addEventListener('click', () => {
+      (this.cb.onPlayUiConfirm ?? this.cb.onPlayUiClick)();
+      this.cb.onNewRun();
+    });
+    menuBox.appendChild(playBtn);
+
+    const optRow = document.createElement('div');
+    optRow.className = 'kf-title-btn-row';
+
+    const optBtn = document.createElement('button');
+    optBtn.type = 'button';
+    optBtn.className = 'kf-btn';
+    optBtn.innerHTML = `${svgIcon('options', 15)}<span>OPTIONS</span>`;
+    optBtn.dataset.testid = 'title-options-btn';
+    optBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      this.cb.onOpenOptions();
+    });
+
+    const kbBtn = document.createElement('button');
+    kbBtn.type = 'button';
+    kbBtn.className = 'kf-btn';
+    kbBtn.innerHTML = `${svgIcon('keybinds', 15)}<span>CONTROLS</span>`;
+    kbBtn.dataset.testid = 'title-keybinds-btn';
+    kbBtn.addEventListener('click', () => {
+      this.cb.onPlayUiClick();
+      this.cb.onOpenKeybinds();
+    });
+
+    optRow.append(optBtn, kbBtn);
+    menuBox.appendChild(optRow);
+
+    center.append(header, menuBox);
+    this.root.appendChild(center);
+
+    // ------------------------------------------------------------------------
+    // 3. BOTTOM KEYCAP LEGEND & CAREER RECORD STRIP
+    // ------------------------------------------------------------------------
     const footer = document.createElement('div');
     footer.className = 'kf-title-footer';
-    const legend = formatFooterLegend(controllerStatus, prompts);
     footer.innerHTML = `
-      <span data-testid="title-controls-legend">${legend}</span>
-      <span>RUNS ${save.totalRuns} · KILLS ${save.totalKills} · BOSSES ${save.defeatedBosses.length}/6 · BEST LOOP ${save.bestLoop} · [F9] PLAYTEST</span>
+      <div class="kf-legend-strip" data-testid="title-controls-legend">${renderFooterLegendHtml(controllerStatus, prompts)}</div>
+      <div class="kf-title-records">
+        <span>RUNS <strong>${save.totalRuns}</strong></span>
+        <span>KILLS <strong>${save.totalKills}</strong></span>
+        <span>BOSSES <strong>${save.defeatedBosses.length}/6</strong></span>
+        <span>BEST LOOP <strong>${save.bestLoop}</strong></span>
+      </div>
     `;
     this.root.appendChild(footer);
   }
@@ -339,7 +410,7 @@ export class TitleScreen {
           : 'Switched live to Built-In Krunked Art.';
       this.packMessageIsError = false;
     } else {
-      this.packMessage = 'Custom Pack unavailable. Use LOAD CUSTOM PACK to mount your folder.';
+      this.packMessage = 'Custom Pack unavailable. Click LOAD to mount your folder.';
       this.packMessageIsError = true;
     }
     this.lastSignature = '';
@@ -361,15 +432,6 @@ export class TitleScreen {
       this.packMessageIsError = true;
     }
     this.lastSignature = '';
-  }
-
-  private makeBtn(text: string, className: string, onClick: () => void): HTMLButtonElement {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = className;
-    btn.textContent = text;
-    btn.addEventListener('click', onClick);
-    return btn;
   }
 
   public dispose(): void {

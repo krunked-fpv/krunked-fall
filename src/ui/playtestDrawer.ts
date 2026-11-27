@@ -21,6 +21,7 @@ import {
   SKINS,
   WEAPONS,
 } from '../data/index.js';
+import { svgIcon } from './icons.js';
 
 export interface PlaytestDrawerCallbacks {
   getBridge(): DebugBridge;
@@ -34,7 +35,6 @@ export class PlaytestDrawer {
   private open = false;
   private built = false;
 
-  // Cached telemetry value nodes (updated smoothly without rebuilding controls!)
   private metricFps!: HTMLElement;
   private metricSim!: HTMLElement;
   private metricTick!: HTMLElement;
@@ -106,8 +106,18 @@ export class PlaytestDrawer {
     // Header
     const header = document.createElement('div');
     header.className = 'kf-drawer-header';
-    header.innerHTML = `<strong style="color:var(--kf-amber);letter-spacing:0.12em;">[F9] PLAYTEST DRAWER</strong>`;
-    const closeBtn = this.makeBtn('✕', 'kf-btn kf-btn-sm kf-btn-danger', () => {
+    header.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="kf-kbd kf-kbd-gold">F9</span>
+        <strong style="font-family:var(--kf-font-display);font-size:13.5px;color:var(--kf-amber);letter-spacing:0.12em;">PLAYTEST CONSOLE</strong>
+      </div>
+    `;
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'kf-btn kf-btn-sm kf-btn-danger';
+    closeBtn.style.padding = '4px 8px';
+    closeBtn.innerHTML = svgIcon('close', 13);
+    closeBtn.addEventListener('click', () => {
       this.cb.onPlayUiClick();
       this.cb.onClose();
     });
@@ -276,7 +286,7 @@ export class PlaytestDrawer {
     const resRow = document.createElement('div');
     resRow.className = 'kf-drawer-row';
     resRow.append(
-      this.makeBtn('+500 GOLD', 'kf-btn kf-btn-sm kf-btn-gold', () => {
+      this.makeBtn('+500G', 'kf-btn kf-btn-sm kf-btn-gold', () => {
         this.cb.onPlayUiClick();
         this.cb.getBridge().grantResources({ gold: 500 });
       }),
@@ -309,7 +319,7 @@ export class PlaytestDrawer {
       const b = this.cb.getBridge();
       b.setGodMode(!b.getState().godMode);
     });
-    const stepBtn = this.makeBtn('STEP +60 TICKS', 'kf-btn kf-btn-sm kf-btn-gold', () => {
+    const stepBtn = this.makeBtn('STEP +60', 'kf-btn kf-btn-sm kf-btn-gold', () => {
       this.cb.onPlayUiClick();
       this.cb.getBridge().stepTicks(60);
     });

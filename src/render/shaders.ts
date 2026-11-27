@@ -304,95 +304,108 @@ void main() {
   vec2 px = floor(vUV * uResolution);
   vec2 uv = (px + 0.5) / uResolution;
 
-  // Deep Arctic midnight sky gradient
-  vec3 skyBot = vec3(0.06, 0.11, 0.19);
-  vec3 skyMid = vec3(0.03, 0.05, 0.12);
-  vec3 skyTop = vec3(0.015, 0.015, 0.05);
-  vec3 col = mix(skyBot, skyMid, smoothstep(0.08, 0.52, uv.y));
-  col = mix(col, skyTop, smoothstep(0.52, 0.96, uv.y));
+  // Deep Arctic midnight twilight sky gradient
+  vec3 skyBot = vec3(0.055, 0.125, 0.215);
+  vec3 skyMid = vec3(0.028, 0.058, 0.135);
+  vec3 skyTop = vec3(0.012, 0.016, 0.052);
+  vec3 col = mix(skyBot, skyMid, smoothstep(0.06, 0.48, uv.y));
+  col = mix(col, skyTop, smoothstep(0.48, 0.96, uv.y));
 
-  // Gently attenuate bright white stars behind top title-banner band (uv.y 0.74..0.94)
-  // while keeping the emerald/cyan/violet Aurora ribbons flowing vividly
-  float titleBannerBand = smoothstep(0.71, 0.76, uv.y) * (1.0 - smoothstep(0.92, 0.96, uv.y));
-  float starBannerAtten = 1.0 - 0.82 * titleBannerBand;
+  // Gently attenuate stars behind the top emblem zone so the wordmark pops cleanly
+  float titleBannerBand = smoothstep(0.66, 0.74, uv.y) * (1.0 - smoothstep(0.91, 0.96, uv.y));
+  float starBannerAtten = 1.0 - 0.85 * titleBannerBand;
 
-  // Crisp 1px twinkling stars
-  vec2 starCell = floor(px * 0.5);
+  // Fine 1px pixel stars with gentle twinkle & subtle color temperature variation
+  vec2 starCell = floor(px);
   float starRnd = hash21(starCell);
-  if (starRnd > 0.992 && uv.y > 0.28) {
-    float tw = 0.55 + 0.45 * sin(uTime * 3.5 + starRnd * 120.0);
-    vec3 starTint = mix(vec3(0.75, 0.92, 1.0), vec3(1.0, 0.85, 0.72), fract(starRnd * 73.1));
-    col += starTint * tw * smoothstep(0.28, 0.65, uv.y) * starBannerAtten;
+  if (starRnd > 0.9968 && uv.y > 0.28) {
+    float tw = 0.42 + 0.58 * sin(uTime * (2.2 + fract(starRnd * 31.0) * 2.5) + starRnd * 140.0);
+    vec3 starTint = mix(vec3(0.68, 0.90, 1.0), vec3(1.0, 0.86, 0.68), fract(starRnd * 73.1));
+    col += starTint * tw * 0.78 * smoothstep(0.28, 0.62, uv.y) * starBannerAtten;
   }
 
-  // Flowing multi-curtain Norse Aurora Borealis (emerald -> cyan -> runic violet)
-  float t = uTime * 0.42;
+  // Sweeping multi-curtain Norse Aurora Borealis with silk vertical ray pillars
+  float t = uTime * 0.34;
   vec3 aurora = vec3(0.0);
   for (int i = 0; i < 3; i++) {
     float fi = float(i);
-    float waveX = uv.x * (3.2 + fi * 1.1) + t * (0.65 - fi * 0.18) + fi * 2.1;
-    float curtainY = 0.50 + fi * 0.085
-                   + sin(waveX) * 0.075
-                   + cos(waveX * 1.85 - t * 1.1) * 0.035;
+    float waveX = uv.x * (2.6 + fi * 0.85) + t * (0.52 - fi * 0.14) + fi * 2.35;
+    float curtainY = 0.46 + fi * 0.078
+                   + sin(waveX) * 0.068
+                   + cos(waveX * 1.72 - t * 0.88) * 0.032;
     float dy = uv.y - curtainY;
-    // Vertical glowing aurora ray pillars extending upward from curtain base
-    float mask = exp(-abs(dy) * (dy > 0.0 ? 5.8 : 22.0));
-    float rays = 0.55 + 0.45 * sin(uv.x * (58.0 + fi * 24.0) + sin(uv.x * 8.0 + t * 2.0) * 3.2 - t * 3.0);
-    float shimmer = 0.7 + 0.3 * noise1d(uv.x * 22.0 + t * 2.5 + fi * 11.0);
+    // Sharp bright lower edge, tall silky upward fade
+    float mask = exp(-abs(dy) * (dy > 0.0 ? 4.4 : 26.0));
+    float rayFold = sin(uv.x * (36.0 + fi * 18.0) + sin(uv.x * 6.5 + t * 1.6) * 2.6 - t * 2.1);
+    float rays = 0.58 + 0.42 * rayFold;
+    float shimmer = 0.72 + 0.28 * noise1d(uv.x * 18.0 + t * 2.0 + fi * 11.0);
     float band = mask * rays * shimmer;
 
-    vec3 lowC = mix(vec3(0.08, 0.98, 0.62), vec3(0.14, 0.86, 1.0), fi * 0.45);
-    vec3 highC = mix(vec3(0.56, 0.24, 0.98), vec3(0.95, 0.22, 0.66), fi * 0.4);
-    vec3 ribbonCol = mix(lowC, highC, clamp(dy * 4.5 + 0.25, 0.0, 1.0));
-    aurora += ribbonCol * band * (0.72 - fi * 0.14);
+    vec3 lowC = mix(vec3(0.10, 0.96, 0.66), vec3(0.16, 0.86, 1.0), fi * 0.42);
+    vec3 highC = mix(vec3(0.46, 0.22, 0.92), vec3(0.92, 0.24, 0.64), fi * 0.45);
+    vec3 ribbonCol = mix(lowC, highC, clamp(dy * 3.8 + 0.18, 0.0, 1.0));
+    aurora += ribbonCol * band * (0.64 - fi * 0.13);
   }
-  // Quantize aurora into crisp pixel-art color steps for authentic retro feel
-  aurora = floor(aurora * 14.0 + 0.5) / 14.0;
-  col += aurora * 0.95;
+  // Subtle high-bit pixel-art tone stepping (smooth silk, zero harsh rings)
+  aurora = floor(aurora * 28.0 + 0.5) / 28.0;
+  col += aurora * 0.86;
 
-  // Horizon Bifrost pulse beacon behind central peak
-  float beaconDist = length((uv - vec2(0.5, 0.22)) * vec2(1.75, 1.0));
-  float beacon = exp(-beaconDist * 5.2) * (0.55 + 0.2 * sin(uTime * 2.4));
-  col += vec3(0.18, 0.82, 0.95) * beacon * 0.65;
+  // Distant Bifrost Pillar & Horizon Pulse Beacon behind central fjord pass
+  float pillarDx = abs(uv.x - 0.5);
+  float bifrostBeam = exp(-pillarDx * 36.0) * smoothstep(0.14, 0.28, uv.y) * smoothstep(0.92, 0.28, uv.y);
+  float beamShimmer = 0.75 + 0.25 * sin(uTime * 3.2 - uv.y * 14.0);
+  col += vec3(0.22, 0.86, 1.0) * bifrostBeam * beamShimmer * 0.24;
 
-  // Distant jagged fjord mountain range silhouette
-  float farRidge = 0.20 + ridge(uv.x, 7.5, 0.19, 1.3);
+  float beaconDist = length((uv - vec2(0.5, 0.20)) * vec2(1.65, 1.15));
+  float beacon = exp(-beaconDist * 4.6) * (0.58 + 0.18 * sin(uTime * 2.2));
+  col += vec3(0.18, 0.80, 0.96) * beacon * 0.55;
+
+  // Layer 1: Distant misty fjord mountain range silhouette
+  float farRidge = 0.23 + ridge(uv.x, 6.2, 0.17, 0.9);
   if (uv.y < farRidge) {
     float rim = smoothstep(farRidge - 0.012, farRidge, uv.y);
-    col = mix(vec3(0.05, 0.07, 0.13), vec3(0.16, 0.32, 0.42), rim * 0.55);
+    vec3 farBase = mix(vec3(0.042, 0.068, 0.125), vec3(0.065, 0.105, 0.175), smoothstep(0.0, farRidge, uv.y));
+    col = mix(farBase, vec3(0.20, 0.46, 0.58), rim * 0.52);
   }
 
-  // Foreground dark craggy Norse peaks + cyber-pylon spires
-  float nearRidge = 0.11 + ridge(uv.x, 11.5, 0.13, 4.7);
-  // Add dramatic monolith silhouette on right ridge
-  float spireMask = step(abs(uv.x - 0.81), 0.012) * step(uv.y, 0.29);
-  float spireMask2 = step(abs(uv.x - 0.16), 0.009) * step(uv.y, 0.26);
+  // Layer 2: Mid craggy glacier peaks
+  float midRidge = 0.15 + ridge(uv.x, 9.2, 0.14, 2.7);
+  if (uv.y < midRidge) {
+    float rim2 = smoothstep(midRidge - 0.008, midRidge, uv.y);
+    col = mix(vec3(0.030, 0.044, 0.084), vec3(0.12, 0.24, 0.34), rim2 * 0.48);
+  }
+
+  // Layer 3: Foreground dark craggy Norse peaks + twin glowing cyber-pylon monoliths
+  float nearRidge = 0.09 + ridge(uv.x, 12.8, 0.11, 5.1);
+  float spireMask = step(abs(uv.x - 0.82), 0.010) * step(uv.y, 0.28);
+  float spireMask2 = step(abs(uv.x - 0.17), 0.0085) * step(uv.y, 0.25);
   if (uv.y < nearRidge || spireMask > 0.5 || spireMask2 > 0.5) {
-    col = vec3(0.025, 0.028, 0.055);
-    // Glowing cyan rune slit on monoliths
-    if (spireMask > 0.5 && abs(uv.x - 0.81) < 0.0025 && uv.y > 0.18 && uv.y < 0.265) {
-      col = vec3(0.2, 0.95, 1.0) * (0.75 + 0.25 * sin(uTime * 4.0));
+    col = vec3(0.020, 0.024, 0.046);
+    // Glowing cyan & amber-magenta runic slits on monoliths
+    if (spireMask > 0.5 && abs(uv.x - 0.82) < 0.0022 && uv.y > 0.16 && uv.y < 0.26) {
+      col = vec3(0.22, 0.95, 1.0) * (0.72 + 0.28 * sin(uTime * 3.6));
     }
-    if (spireMask2 > 0.5 && abs(uv.x - 0.16) < 0.002 && uv.y > 0.16 && uv.y < 0.24) {
-      col = vec3(1.0, 0.35, 0.72) * (0.75 + 0.25 * cos(uTime * 3.4));
+    if (spireMask2 > 0.5 && abs(uv.x - 0.17) < 0.0019 && uv.y > 0.14 && uv.y < 0.23) {
+      col = vec3(1.0, 0.62, 0.22) * (0.72 + 0.28 * cos(uTime * 3.1));
     }
   }
 
-  // Drifting pixel snow motes across title backdrop (softened inside title banner band)
+  // Delicate, sparse drifting 1px pixel snow motes (atmospheric depth, never noisy)
   for (int layer = 0; layer < 2; layer++) {
     float fl = float(layer + 1);
-    vec2 snowPx = px + vec2(floor(uTime * (22.0 * fl)), floor(-uTime * (12.0 * fl)));
-    vec2 cell = floor(snowPx / (16.0 - fl * 4.0));
-    vec2 local = mod(snowPx, 16.0 - fl * 4.0);
-    float rnd = hash21(cell + fl * 37.0);
-    if (rnd > 0.91 && local.x < 1.5 && local.y < 1.5) {
-      col = mix(col, vec3(0.86, 0.96, 1.0), 0.65 * (0.45 + 0.55 * starBannerAtten));
+    vec2 snowPx = px + vec2(floor(uTime * (16.0 * fl)), floor(-uTime * (9.0 * fl)));
+    float grid = 34.0 - fl * 8.0;
+    vec2 cell = floor(snowPx / grid);
+    vec2 local = mod(snowPx, grid);
+    float rnd = hash21(cell + fl * 53.0);
+    if (rnd > 0.945 && local.x < 1.0 && local.y < 1.0) {
+      col = mix(col, vec3(0.84, 0.96, 1.0), (0.32 + fl * 0.12) * (0.35 + 0.65 * starBannerAtten));
     }
   }
 
-  // Subtle dark edge vignette so Title UI buttons stand out razor-sharp
-  vec2 vig = (uv - 0.5) * vec2(1.25, 1.35);
-  col *= clamp(1.08 - dot(vig, vig) * 0.55, 0.45, 1.0);
+  // Subtle dark edge vignette framing the composition
+  vec2 vig = (uv - 0.5) * vec2(1.22, 1.32);
+  col *= clamp(1.06 - dot(vig, vig) * 0.52, 0.44, 1.0);
 
   outColor = vec4(col, 1.0);
 }
@@ -537,6 +550,11 @@ void main() {
     float rim = smoothstep(0.55, 1.2, length(dv));
     col = mix(col, vec3(0.95, 0.12, 0.18), clamp(rim * redVignette, 0.0, 0.65));
   }
+
+  // Subtle atmospheric corner vignette (keeps pixel art razor-sharp & center bright)
+  vec2 vigDelta = (baseUV - 0.5) * vec2(1.18, 1.24);
+  float vigMask = mix(1.0, 0.86, smoothstep(0.68, 1.32, length(vigDelta)));
+  col *= vigMask;
 
   outColor = vec4(clamp(col, vec3(0.0), vec3(1.0)), 1.0);
 }

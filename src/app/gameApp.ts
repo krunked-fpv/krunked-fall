@@ -252,6 +252,17 @@ export class GameApp {
         this.audio.unlock();
         this.audio.playUi('click');
       },
+      onPlayUiHover: () => {
+        this.audio.playUi('hover');
+      },
+      onPlayUiConfirm: () => {
+        this.audio.unlock();
+        this.audio.playUi('confirm');
+      },
+      onPlayUiError: () => {
+        this.audio.unlock();
+        this.audio.playUi('error');
+      },
       getBridge: () => this.debugBridge,
     });
   }

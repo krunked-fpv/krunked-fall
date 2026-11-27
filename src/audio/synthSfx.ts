@@ -1535,65 +1535,86 @@ export class SynthSfxEngine {
 
     switch (kind) {
       case 'hover': {
+        // Subtle, non-fatiguing metallic micro-tick
         const osc = ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(880 * pitch, now);
-        osc.frequency.exponentialRampToValueAtTime(1120 * pitch, now + 0.02);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1180 * pitch, now);
+        osc.frequency.exponentialRampToValueAtTime(1480 * pitch, now + 0.018);
         const g = ctx.createGain();
-        g.gain.setValueAtTime(0.12 * vol, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.026);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.065 * vol, now + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.024);
         osc.connect(g);
         g.connect(dest);
         osc.start(now);
-        osc.stop(now + 0.032);
-        return 0.035;
+        osc.stop(now + 0.028);
+        return 0.03;
       }
       case 'click': {
+        // Tactile forged-iron latch click (warm resonant body + crisp transient)
         const osc = ctx.createOscillator();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(660 * pitch, now);
-        osc.frequency.exponentialRampToValueAtTime(320 * pitch, now + 0.04);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(760 * pitch, now);
+        osc.frequency.exponentialRampToValueAtTime(290 * pitch, now + 0.038);
         const lp = ctx.createBiquadFilter();
         lp.type = 'lowpass';
-        lp.frequency.setValueAtTime(2200, now);
+        lp.frequency.setValueAtTime(2400, now);
         const g = ctx.createGain();
-        g.gain.setValueAtTime(0.24 * vol, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        g.gain.setValueAtTime(0.22 * vol, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
         osc.connect(lp);
         lp.connect(g);
         g.connect(dest);
         osc.start(now);
-        osc.stop(now + 0.055);
-        return 0.06;
+        osc.stop(now + 0.05);
+
+        const snap = this.createNoiseSource(ctx, false);
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.setValueAtTime(2800, now);
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.09 * vol, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.014);
+        snap.connect(hp);
+        hp.connect(ng);
+        ng.connect(dest);
+        snap.start(now);
+        snap.stop(now + 0.018);
+        return 0.055;
       }
       case 'confirm': {
-        const notes = [587.33, 880.0];
+        // Warm Norse fifth-and-octave rune chime (D5 -> A5 -> D6)
+        const notes = [587.33, 880.0, 1174.66];
         notes.forEach((hz, i) => {
-          const t = now + i * 0.045;
+          const t = now + i * 0.038;
           const osc = ctx.createOscillator();
-          osc.type = 'triangle';
+          osc.type = i === 2 ? 'sine' : 'triangle';
           osc.frequency.setValueAtTime(hz * pitch, t);
+          const lp = ctx.createBiquadFilter();
+          lp.type = 'lowpass';
+          lp.frequency.setValueAtTime(3200, t);
           const g = ctx.createGain();
-          g.gain.setValueAtTime(0.26 * vol, t);
-          g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
-          osc.connect(g);
+          g.gain.setValueAtTime((i === 2 ? 0.14 : 0.22) * vol, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+          osc.connect(lp);
+          lp.connect(g);
           g.connect(dest);
           osc.start(t);
-          osc.stop(t + 0.12);
+          osc.stop(t + 0.15);
         });
-        return 0.18;
+        return 0.22;
       }
       case 'error': {
         for (let i = 0; i < 2; i++) {
-          const t = now + i * 0.075;
+          const t = now + i * 0.072;
           const osc = ctx.createOscillator();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime((190 - i * 32) * pitch, t);
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime((185 - i * 34) * pitch, t);
           const lp = ctx.createBiquadFilter();
           lp.type = 'lowpass';
-          lp.frequency.setValueAtTime(750, t);
+          lp.frequency.setValueAtTime(640, t);
           const g = ctx.createGain();
-          g.gain.setValueAtTime(0.28 * vol, t);
+          g.gain.setValueAtTime(0.24 * vol, t);
           g.gain.exponentialRampToValueAtTime(0.001, t + 0.068);
           osc.connect(lp);
           lp.connect(g);

@@ -72,6 +72,9 @@ export interface UiManagerCallbacks {
   onTouchAction(action: TouchActionKind): void;
   onTouchDetected(): void;
   onPlayUiClick(): void;
+  onPlayUiHover?(): void;
+  onPlayUiConfirm?(): void;
+  onPlayUiError?(): void;
   getBridge(): DebugBridge;
 }
 
@@ -111,6 +114,10 @@ export class UiManager {
   private systemOverlay: 'none' | 'options' | 'keybinds' = 'none';
   private hidingCursor = false;
   private touchActiveClass = false;
+  private readonly uiRootRef: HTMLElement;
+  private lastHoverEl: Element | null = null;
+  private lastHoverMs = 0;
+  private readonly onPointerOverBound: (e: Event) => void;
 
   constructor(
     appRoot: HTMLElement,
@@ -118,7 +125,30 @@ export class UiManager {
     callbacks: UiManagerCallbacks,
   ) {
     this.appRoot = appRoot;
+    this.uiRootRef = uiRoot;
     this.cb = callbacks;
+
+    this.onPointerOverBound = (e: Event) => {
+      const target = e.target as Element | null;
+      if (!target || typeof target.closest !== 'function') return;
+      const interactive = target.closest(
+        '.kf-btn:not(:disabled), .kf-dock-btn, .kf-seg-btn:not(:disabled), .kf-toggle, .kf-outcast-card, .kf-skin-card, .kf-skill-node, .kf-map-node, .kf-title-continue-card, .kf-dex-card.clickable, .kf-kbd-lg',
+      );
+      if (!interactive) {
+        this.lastHoverEl = null;
+        return;
+      }
+      if (interactive === this.lastHoverEl) return;
+      this.lastHoverEl = interactive;
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - this.lastHoverMs >= 60) {
+        this.lastHoverMs = now;
+        this.cb.onPlayUiHover?.();
+      }
+    };
+    if (typeof uiRoot.addEventListener === 'function') {
+      uiRoot.addEventListener('pointerover', this.onPointerOverBound, { passive: true });
+    }
 
     this.titleScreen = new TitleScreen(uiRoot, {
       onNewRun: callbacks.onNewRun,
@@ -132,6 +162,7 @@ export class UiManager {
       onSetPackMode: callbacks.onSetPackMode,
       onLoadCustomPack: callbacks.onLoadCustomPack,
       onPlayUiClick: callbacks.onPlayUiClick,
+      onPlayUiConfirm: callbacks.onPlayUiConfirm,
     });
 
     this.hubUi = new HubUi(uiRoot, {
@@ -146,6 +177,8 @@ export class UiManager {
       onAllocateSkill: callbacks.onAllocateSkill,
       onToggleModifier: callbacks.onToggleModifier,
       onPlayUiClick: callbacks.onPlayUiClick,
+      onPlayUiConfirm: callbacks.onPlayUiConfirm,
+      onPlayUiError: callbacks.onPlayUiError,
     });
 
     this.overworldUi = new OverworldUi(uiRoot, {
@@ -153,6 +186,7 @@ export class UiManager {
       onReturnToHub: callbacks.onReturnToHub,
       onOpenWorkbench: callbacks.onToggleWorkbench,
       onPlayUiClick: callbacks.onPlayUiClick,
+      onPlayUiConfirm: callbacks.onPlayUiConfirm,
     });
 
     this.combatHud = new CombatHud(uiRoot, {
@@ -215,6 +249,8 @@ export class UiManager {
       onStartRebind: callbacks.onStartRebind,
       onResetKeybinds: callbacks.onResetKeybinds,
       onPlayUiClick: callbacks.onPlayUiClick,
+      onPlayUiConfirm: callbacks.onPlayUiConfirm,
+      onPlayUiError: callbacks.onPlayUiError,
     });
 
     this.playtestDrawer = new PlaytestDrawer(uiRoot, {
@@ -500,6 +536,9 @@ export class UiManager {
   }
 
   public dispose(): void {
+    if (typeof this.uiRootRef.removeEventListener === 'function') {
+      this.uiRootRef.removeEventListener('pointerover', this.onPointerOverBound);
+    }
     this.appRoot.classList.remove('kf-hide-cursor');
     this.appRoot.classList.remove('kf-touch-active');
     this.gamepadNav.clearFocus();

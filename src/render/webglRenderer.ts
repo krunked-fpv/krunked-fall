@@ -1940,29 +1940,81 @@ export class WebGL2Renderer {
     if (map.exitUnlocked && state.screenMode === 'combat') {
       const bifrost = this.packManager.resolveSprite('fx_bifrost', animFrame4);
       const maxDim = Math.max(bifrost.width, bifrost.height);
-      const baseScale = bifrost.sourcePack === 'custom' && maxDim > 48 ? 42 / maxDim : 1.0;
-      const pulse = baseScale * (1.0 + Math.sin(timeSec * 5) * 0.08);
-      batch.drawSprite(
-        bifrost.pageTexture,
-        map.exitX,
-        map.exitY,
-        bifrost.width,
-        bifrost.height,
-        bifrost.originX,
-        bifrost.originY,
-        pulse,
-        pulse,
-        timeSec * 1.2,
-        bifrost.u0,
-        bifrost.v0,
-        bifrost.u1,
-        bifrost.v1,
-        1, 1, 1, 1, 0, FX_MODE_BIFROST
-      );
+      const baseScale = bifrost.sourcePack === 'custom' && maxDim > 48 ? 44 / maxDim : 1.0;
+      const isWideCustomArch =
+        bifrost.sourcePack === 'custom' && bifrost.width > bifrost.height * 1.35;
+      const pulse = baseScale * (1.0 + Math.sin(timeSec * 5) * 0.06);
+      if (isWideCustomArch) {
+        const halfYOffset = bifrost.height * pulse * 0.44;
+        batch.drawSprite(
+          bifrost.pageTexture,
+          map.exitX,
+          map.exitY - halfYOffset,
+          bifrost.width,
+          bifrost.height,
+          bifrost.width * 0.5,
+          bifrost.height * 0.5,
+          pulse,
+          -pulse,
+          0,
+          bifrost.u0, bifrost.v0, bifrost.u1, bifrost.v1,
+          1, 1, 1, 0.94, 0, FX_MODE_BIFROST
+        );
+        batch.drawSprite(
+          bifrost.pageTexture,
+          map.exitX,
+          map.exitY + halfYOffset - 1,
+          bifrost.width,
+          bifrost.height,
+          bifrost.width * 0.5,
+          bifrost.height * 0.5,
+          pulse,
+          pulse,
+          0,
+          bifrost.u0, bifrost.v0, bifrost.u1, bifrost.v1,
+          1, 1, 1, 1, 0, FX_MODE_BIFROST
+        );
+      } else {
+        batch.drawSprite(
+          bifrost.pageTexture,
+          map.exitX,
+          map.exitY,
+          bifrost.width,
+          bifrost.height,
+          bifrost.originX,
+          bifrost.originY,
+          pulse,
+          pulse,
+          timeSec * 1.2,
+          bifrost.u0,
+          bifrost.v0,
+          bifrost.u1,
+          bifrost.v1,
+          1, 1, 1, 1, 0, FX_MODE_BIFROST
+        );
+      }
     }
 
-    // 1E. Hub Outpost Landmarks (Every station has its own distinct sprite & rune pad!)
+    // 1E. Hub Outpost Landmarks (Norse Sanctuary Floor Circuitry + Distinct Station Pads)
     if (state.screenMode === 'hub' && state.hubInteractables.length > 0) {
+      const wu = (white.u0 + white.u1) * 0.5;
+      const wv = (white.v0 + white.v1) * 0.5;
+      const cx = map.spawnX;
+      const cy = map.spawnY;
+
+      // Central Norse Sanctuary Rune Ring around Three-Rock Outpost spawn
+      const hubPulse = 0.55 + 0.25 * Math.sin(timeSec * 2.4);
+      batch.drawArcRibbon(
+        white.pageTexture, wu, wv,
+        cx, cy + 4, 24, 26, 0, Math.PI * 2, 28,
+        0.24, 0.78, 0.96, 0.26 * hubPulse
+      );
+      batch.drawArcRibbon(
+        white.pageTexture, wu, wv,
+        cx, cy + 4, 15, 16.5, 0, Math.PI * 2, 20,
+        1.0, 0.76, 0.28, 0.22 * hubPulse
+      );
+
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const item = state.hubInteractables[i];
         const dist = Math.hypot(state.player.x - item.x, state.player.y - item.y);
@@ -1986,10 +2038,25 @@ export class WebGL2Renderer {
                         ? ([0.38, 0.96, 1.0] as const)
                         : ([1.0, 0.86, 0.36] as const);
 
+        // Subtle luminous floor conduit line linking central ring to each station pad
+        const dxC = item.x - cx;
+        const dyC = item.y + 4 - (cy + 4);
+        const dC = Math.hypot(dxC, dyC);
+        if (dC > 38) {
+          const ux = dxC / dC;
+          const uy = dyC / dC;
+          batch.drawLine(
+            white.pageTexture, wu, wv,
+            cx + ux * 26, cy + 4 + uy * 26,
+            item.x - ux * (item.radius * 0.8), item.y + 4 - uy * (item.radius * 0.8),
+            1.4, ringCol[0], ringCol[1], ringCol[2], near ? 0.38 : 0.14
+          );
+        }
+
         batch.drawArcRibbon(
           white.pageTexture,
-          (white.u0 + white.u1) * 0.5,
-          (white.v0 + white.v1) * 0.5,
+          wu,
+          wv,
           item.x,
           item.y + 4,
           item.radius * 0.68,
@@ -2000,7 +2067,7 @@ export class WebGL2Renderer {
           ringCol[0],
           ringCol[1],
           ringCol[2],
-          near ? 0.90 : 0.45
+          near ? 0.92 : 0.48
         );
 
         let key = 'hub_jotunn';
@@ -2024,23 +2091,63 @@ export class WebGL2Renderer {
         const sp = this.packManager.resolveSprite(key, frameIdx);
         const maxDim = Math.max(sp.width, sp.height);
         const fitScale = sp.sourcePack === 'custom' && maxDim > 48 ? 46 / maxDim : 1.0;
-        batch.drawSprite(
-          sp.pageTexture,
-          item.x,
-          item.y,
-          sp.width,
-          sp.height,
-          sp.originX,
-          sp.originY,
-          fitScale,
-          fitScale,
-          item.id === 'bifrost' ? timeSec * 0.9 : 0,
-          sp.u0,
-          sp.v0,
-          sp.u1,
-          sp.v1,
-          1, 1, 1, 1, near ? 0.14 : 0, fxMode
-        );
+        const isWideCustomArch =
+          item.id === 'bifrost' && sp.sourcePack === 'custom' && sp.width > sp.height * 1.35;
+        const drawScale = isWideCustomArch
+          ? fitScale * (1.0 + Math.sin(timeSec * 3.2) * 0.045)
+          : fitScale;
+        const drawRot = item.id === 'bifrost' && !isWideCustomArch ? timeSec * 0.9 : 0;
+
+        if (isWideCustomArch) {
+          // Retail Hub Bifrost middle sprite is a lower rainbow half-crescent; mirror both halves into a full portal disc!
+          const halfYOffset = sp.height * drawScale * 0.44;
+          batch.drawSprite(
+            sp.pageTexture,
+            item.x,
+            item.y - halfYOffset,
+            sp.width,
+            sp.height,
+            sp.width * 0.5,
+            sp.height * 0.5,
+            drawScale,
+            -drawScale,
+            0,
+            sp.u0, sp.v0, sp.u1, sp.v1,
+            1, 1, 1, 0.94, near ? 0.14 : 0, fxMode
+          );
+          batch.drawSprite(
+            sp.pageTexture,
+            item.x,
+            item.y + halfYOffset - 1,
+            sp.width,
+            sp.height,
+            sp.width * 0.5,
+            sp.height * 0.5,
+            drawScale,
+            drawScale,
+            0,
+            sp.u0, sp.v0, sp.u1, sp.v1,
+            1, 1, 1, 1, near ? 0.14 : 0, fxMode
+          );
+        } else {
+          batch.drawSprite(
+            sp.pageTexture,
+            item.x,
+            item.y,
+            sp.width,
+            sp.height,
+            sp.originX,
+            sp.originY,
+            drawScale,
+            drawScale,
+            drawRot,
+            sp.u0,
+            sp.v0,
+            sp.u1,
+            sp.v1,
+            1, 1, 1, 1, near ? 0.14 : 0, fxMode
+          );
+        }
       }
     }
 
@@ -2501,6 +2608,72 @@ export class WebGL2Renderer {
       this.drawPixelText(batch, ft.text, ft.x, ft.y, ft.scale, ft.r, ft.g, ft.b, a, true);
     }
 
+    // 4I. Off-Screen Tactical Edge Indicators (Unlocked Bifrost Exit & Final <=3 Foes)
+    if (state.screenMode === 'combat') {
+      const drawEdgePointer = (
+        tx: number,
+        ty: number,
+        r: number,
+        g: number,
+        b: number,
+        label: string | null
+      ) => {
+        const margin = 18;
+        if (
+          tx >= viewLeft + 6 &&
+          tx <= viewLeft + viewW - 6 &&
+          ty >= viewTop + 6 &&
+          ty <= viewTop + viewH - 6
+        ) {
+          return;
+        }
+        const vcx = viewLeft + viewW * 0.5;
+        const vcy = viewTop + viewH * 0.5;
+        const dx = tx - vcx;
+        const dy = ty - vcy;
+        const ang = Math.atan2(dy, dx);
+        const halfW = viewW * 0.5 - margin;
+        const halfH = viewH * 0.5 - margin;
+        const scaleX = Math.abs(dx) > 0.001 ? halfW / Math.abs(dx) : 1e6;
+        const scaleY = Math.abs(dy) > 0.001 ? halfH / Math.abs(dy) : 1e6;
+        const t = Math.min(scaleX, scaleY);
+        const ex = vcx + dx * t;
+        const ey = vcy + dy * t;
+        const pulse = 0.72 + 0.28 * Math.sin(timeSec * 8);
+
+        // Crisp chevron arrow pointing toward off-screen objective
+        const tipX = ex + Math.cos(ang) * 6;
+        const tipY = ey + Math.sin(ang) * 6;
+        const wing1X = ex + Math.cos(ang + 2.35) * 5;
+        const wing1Y = ey + Math.sin(ang + 2.35) * 5;
+        const wing2X = ex + Math.cos(ang - 2.35) * 5;
+        const wing2Y = ey + Math.sin(ang - 2.35) * 5;
+        batch.drawLine(white.pageTexture, wu, wv, wing1X, wing1Y, tipX, tipY, 2.2, r, g, b, pulse);
+        batch.drawLine(white.pageTexture, wu, wv, wing2X, wing2Y, tipX, tipY, 2.2, r, g, b, pulse);
+        batch.drawQuad(
+          white.pageTexture, ex - 2, ey - 2, 4, 4,
+          white.u0, white.v0, white.u1, white.v1,
+          1, 1, 1, pulse * 0.9
+        );
+        if (label) {
+          const lx = ex - Math.cos(ang) * 14;
+          const ly = ey - Math.sin(ang) * 10 - 3;
+          this.drawPixelText(batch, label, lx, ly, 1, r, g, b, pulse, true);
+        }
+      };
+
+      if (state.map.exitUnlocked) {
+        drawEdgePointer(state.map.exitX, state.map.exitY, 0.24, 0.95, 0.78, 'EXIT');
+      } else if (state.enemies.length > 0 && state.enemies.length <= 3) {
+        for (let i = 0; i < state.enemies.length; i++) {
+          const e = state.enemies[i];
+          if (e.hp > 0) {
+            drawEdgePointer(e.x, e.y, 1.0, 0.28, 0.38, null);
+          }
+        }
+      }
+    }
+
     batch.flush();
   }
 
@@ -2644,6 +2817,31 @@ export class WebGL2Renderer {
 
   private drawPickup(batch: SpriteBatch, p: PickupState, timeSec: number): void {
     const bob = Math.sin(timeSec * 5 + p.id * 1.7) * 2.0;
+
+    // Ground rarity aura ring under high-value loot (Weapons, Mods, Unopened Chests)
+    const isChest =
+      p.kind === 'chest_weapon' || p.kind === 'chest_mod' || p.kind === 'chest_gold';
+    if (p.kind === 'weapon' || p.kind === 'mod' || (isChest && !p.opened)) {
+      const white = this.packManager.getWhitePixel();
+      const wu = (white.u0 + white.u1) * 0.5;
+      const wv = (white.v0 + white.v1) * 0.5;
+      const pulse = 0.55 + 0.35 * Math.sin(timeSec * 5.2 + p.id);
+      const rCol =
+        p.kind === 'mod' || p.kind === 'chest_mod'
+          ? ([0.78, 0.48, 1.0] as const)
+          : isChest
+            ? ([1.0, 0.80, 0.26] as const)
+            : ([0.24, 0.88, 1.0] as const);
+      const rad = isChest ? 14 : 11;
+      batch.drawArcRibbon(
+        white.pageTexture, wu, wv,
+        p.x, p.y + 3,
+        rad - 1.5, rad,
+        0, Math.PI * 2, 16,
+        rCol[0], rCol[1], rCol[2], 0.58 * pulse
+      );
+    }
+
     let key = 'pickup_gold';
     let frame = 0;
     if (p.kind === 'hp') key = 'pickup_hp';
