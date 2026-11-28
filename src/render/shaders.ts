@@ -255,12 +255,22 @@ void main() {
   vec4 scene = texture(uSceneTex, vUV);
   vec4 light = texture(uLightTex, vUV);
 
-  // Preserve crisp readability in shadowed corners while letting neon lights pop
-  vec3 baseLight = clamp(light.rgb, vec3(0.42), vec3(2.05));
-  vec3 overbright = max(light.rgb - vec3(1.0), vec3(0.0));
-  vec3 lit = scene.rgb * baseLight + overbright * (0.36 + 0.58 * scene.rgb);
+  // Crisp selective pixel-emissive bloom from bright hot light sources (muzzle/lava/Bifrost/projectiles)
+  vec2 texel = vec2(1.0 / 640.0, 1.0 / 360.0);
+  vec3 bloom = max(texture(uLightTex, vUV + vec2(texel.x * 2.0, 0.0)).rgb - vec3(1.05), vec3(0.0))
+             + max(texture(uLightTex, vUV - vec2(texel.x * 2.0, 0.0)).rgb - vec3(1.05), vec3(0.0))
+             + max(texture(uLightTex, vUV + vec2(0.0, texel.y * 2.0)).rgb - vec3(1.05), vec3(0.0))
+             + max(texture(uLightTex, vUV - vec2(0.0, texel.y * 2.0)).rgb - vec3(1.05), vec3(0.0));
+  bloom *= 0.14;
 
-  // Slight crisp contrast pop for neon-lit Norse pixel art
+  // Punchy heavy-metal shadow contrast while preserving crisp silhouette readability
+  vec3 baseLight = clamp(light.rgb, vec3(0.36), vec3(2.15));
+  vec3 overbright = max(light.rgb - vec3(1.0), vec3(0.0));
+  vec3 lit = scene.rgb * baseLight + overbright * (0.34 + 0.60 * scene.rgb) + bloom;
+
+  // Subtle vibrant heavy-metal S-curve contrast & saturation lift
+  vec3 luma = vec3(dot(lit, vec3(0.299, 0.587, 0.114)));
+  lit = mix(luma, lit, 1.10);
   lit = clamp(lit, vec3(0.0), vec3(1.0));
   outColor = vec4(lit, 1.0);
 }
@@ -352,60 +362,32 @@ void main() {
 
   // Distant Bifrost Pillar & Horizon Pulse Beacon behind central fjord pass
   float pillarDx = abs(uv.x - 0.5);
-  float bifrostBeam = exp(-pillarDx * 36.0) * smoothstep(0.14, 0.28, uv.y) * smoothstep(0.92, 0.28, uv.y);
-  float beamShimmer = 0.75 + 0.25 * sin(uTime * 3.2 - uv.y * 14.0);
-  col += vec3(0.22, 0.86, 1.0) * bifrostBeam * beamShimmer * 0.24;
+  float bifrostBeam = exp(-pillarDx * 30.0) * smoothstep(0.10, 0.28, uv.y) * smoothstep(0.95, 0.28, uv.y);
+  float beamShimmer = 0.75 + 0.25 * sin(uTime * 3.6 - uv.y * 16.0);
+  vec3 beamPrism = mix(vec3(0.18, 0.92, 1.0), vec3(0.98, 0.42, 0.85), 0.5 + 0.5 * sin(uTime * 1.4 + uv.y * 5.0));
+  col += beamPrism * bifrostBeam * beamShimmer * 0.42;
 
-  float beaconDist = length((uv - vec2(0.5, 0.20)) * vec2(1.65, 1.15));
-  float beacon = exp(-beaconDist * 4.6) * (0.58 + 0.18 * sin(uTime * 2.2));
-  col += vec3(0.18, 0.80, 0.96) * beacon * 0.55;
+  float beaconDist = length((uv - vec2(0.5, 0.22)) * vec2(1.55, 1.10));
+  float beacon = exp(-beaconDist * 4.2) * (0.62 + 0.20 * sin(uTime * 2.4));
+  col += vec3(0.18, 0.86, 1.0) * beacon * 0.62;
 
-  // Layer 1: Distant misty fjord mountain range silhouette
-  float farRidge = 0.23 + ridge(uv.x, 6.2, 0.17, 0.9);
-  if (uv.y < farRidge) {
-    float rim = smoothstep(farRidge - 0.012, farRidge, uv.y);
-    vec3 farBase = mix(vec3(0.042, 0.068, 0.125), vec3(0.065, 0.105, 0.175), smoothstep(0.0, farRidge, uv.y));
-    col = mix(farBase, vec3(0.20, 0.46, 0.58), rim * 0.52);
-  }
-
-  // Layer 2: Mid craggy glacier peaks
-  float midRidge = 0.15 + ridge(uv.x, 9.2, 0.14, 2.7);
-  if (uv.y < midRidge) {
-    float rim2 = smoothstep(midRidge - 0.008, midRidge, uv.y);
-    col = mix(vec3(0.030, 0.044, 0.084), vec3(0.12, 0.24, 0.34), rim2 * 0.48);
-  }
-
-  // Layer 3: Foreground dark craggy Norse peaks + twin glowing cyber-pylon monoliths
-  float nearRidge = 0.09 + ridge(uv.x, 12.8, 0.11, 5.1);
-  float spireMask = step(abs(uv.x - 0.82), 0.010) * step(uv.y, 0.28);
-  float spireMask2 = step(abs(uv.x - 0.17), 0.0085) * step(uv.y, 0.25);
-  if (uv.y < nearRidge || spireMask > 0.5 || spireMask2 > 0.5) {
-    col = vec3(0.020, 0.024, 0.046);
-    // Glowing cyan & amber-magenta runic slits on monoliths
-    if (spireMask > 0.5 && abs(uv.x - 0.82) < 0.0022 && uv.y > 0.16 && uv.y < 0.26) {
-      col = vec3(0.22, 0.95, 1.0) * (0.72 + 0.28 * sin(uTime * 3.6));
-    }
-    if (spireMask2 > 0.5 && abs(uv.x - 0.17) < 0.0019 && uv.y > 0.14 && uv.y < 0.23) {
-      col = vec3(1.0, 0.62, 0.22) * (0.72 + 0.28 * cos(uTime * 3.1));
-    }
-  }
-
-  // Delicate, sparse drifting 1px pixel snow motes (atmospheric depth, never noisy)
+  // Warm forge embers rising softly along the lower flanks (behind pixel-art cliffs)
   for (int layer = 0; layer < 2; layer++) {
     float fl = float(layer + 1);
-    vec2 snowPx = px + vec2(floor(uTime * (16.0 * fl)), floor(-uTime * (9.0 * fl)));
+    vec2 snowPx = px + vec2(floor(uTime * (15.0 * fl)), floor(-uTime * (8.0 * fl)));
     float grid = 34.0 - fl * 8.0;
     vec2 cell = floor(snowPx / grid);
     vec2 local = mod(snowPx, grid);
     float rnd = hash21(cell + fl * 53.0);
     if (rnd > 0.945 && local.x < 1.0 && local.y < 1.0) {
-      col = mix(col, vec3(0.84, 0.96, 1.0), (0.32 + fl * 0.12) * (0.35 + 0.65 * starBannerAtten));
+      vec3 moteCol = rnd > 0.978 ? vec3(1.0, 0.62, 0.22) : vec3(0.84, 0.96, 1.0);
+      col = mix(col, moteCol, (0.38 + fl * 0.14) * (0.35 + 0.65 * starBannerAtten));
     }
   }
 
   // Subtle dark edge vignette framing the composition
-  vec2 vig = (uv - 0.5) * vec2(1.22, 1.32);
-  col *= clamp(1.06 - dot(vig, vig) * 0.52, 0.44, 1.0);
+  vec2 vig = (uv - 0.5) * vec2(1.18, 1.28);
+  col *= clamp(1.06 - dot(vig, vig) * 0.44, 0.48, 1.0);
 
   outColor = vec4(col, 1.0);
 }

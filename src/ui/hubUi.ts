@@ -259,7 +259,7 @@ export class HubUi {
         drawSpriteToCanvas(this.jotunnPreviewCanvas, outcast.spriteKey, {
           frameIndex: animFrame,
           skinId: p.skinId,
-          fixedScale: 4,
+          padding: 4,
         });
       }
     } else if (state.hubPanel === 'loki' && this.lokiCanvas) {
@@ -951,8 +951,8 @@ export class HubUi {
     stage.style.background = `radial-gradient(circle at 50% 56%, ${glowColor}2c 0%, #0d1320 62%, #070a11 100%)`;
 
     const previewCanvas = document.createElement('canvas');
-    previewCanvas.width = 96;
-    previewCanvas.height = 96;
+    previewCanvas.width = 108;
+    previewCanvas.height = 108;
     previewCanvas.className = 'kf-outcast-preview-canvas';
     previewCanvas.dataset.testid = 'jotunn-preview-canvas';
     previewCanvas.setAttribute(
@@ -983,7 +983,7 @@ export class HubUi {
     drawSpriteToCanvas(previewCanvas, selected.spriteKey, {
       frameIndex: animFrame,
       skinId: activeSkin.id,
-      fixedScale: 4,
+      padding: 4,
     });
 
     // Skins Section

@@ -8,14 +8,28 @@ export {
   INK_OUTLINE,
   INK_DARK,
   TRANSPARENT,
+  RAMPS,
   hexToRgba,
+  makeRamp,
+  sampleRamp,
   shadeColor,
   mixColor,
+  bayer4,
   pixelHash,
+  valueNoise2D,
+  tileableNoise2D,
   type RGBA,
+  type ColorRamp,
   type PackedAtlasPage,
   type PackedFramePlacement,
 } from './pixelArtGen';
+
+export {
+  BIOME_ART_FAMILIES,
+  resolveBiomeArtFamily,
+  type BiomeArtFamily,
+  type WorldPropKind,
+} from './biomeTilesets';
 
 export {
   BITMAP_FONT_GLYPHS,

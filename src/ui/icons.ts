@@ -140,80 +140,117 @@ export function svgIcon(name: IconName, size = 15, extraClass = ''): string {
 }
 
 /**
- * Sculpted Norse-Industrial metallic title emblem for KRUNKEDFALL.
- * Pure SVG wordmark with carved rune crest, dual-tone steel/ice gradient,
- * amber forge under-edge, and zero blocky HTML boxes.
+ * Heavy-Metal Forged-Iron & Molten-Rune Title Emblem for KRUNKEDFALL.
+ * Bold chamfered chrome-steel lettering, Viking forge under-glow, horned
+ * Bifrost Valknut crest, and thick hard-ink arcade silhouette!
  */
 export function renderKrunkedfallEmblemSvg(): string {
   return `
-    <svg class="kf-emblem-svg" viewBox="0 0 760 156" role="img" aria-label="KRUNKEDFALL">
+    <svg class="kf-emblem-svg" viewBox="0 0 820 176" role="img" aria-label="KRUNKEDFALL">
       <defs>
         <linearGradient id="kf-title-metal" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#ffffff"/>
-          <stop offset="38%" stop-color="#e3f3ff"/>
-          <stop offset="68%" stop-color="#94bad6"/>
-          <stop offset="100%" stop-color="#4e6d8a"/>
+          <stop offset="28%" stop-color="#d8eefc"/>
+          <stop offset="52%" stop-color="#87adc9"/>
+          <stop offset="56%" stop-color="#405670"/>
+          <stop offset="78%" stop-color="#8ba6bf"/>
+          <stop offset="100%" stop-color="#ffaa40"/>
         </linearGradient>
         <linearGradient id="kf-title-forge" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stop-color="#38e0ff" stop-opacity="0"/>
-          <stop offset="18%" stop-color="#38e0ff"/>
-          <stop offset="50%" stop-color="#ffd257"/>
-          <stop offset="82%" stop-color="#ff7a29"/>
+          <stop offset="14%" stop-color="#38e0ff"/>
+          <stop offset="38%" stop-color="#ffd257"/>
+          <stop offset="50%" stop-color="#ffffff"/>
+          <stop offset="62%" stop-color="#ff8c24"/>
+          <stop offset="86%" stop-color="#ff3d5e"/>
           <stop offset="100%" stop-color="#ff3d5e" stop-opacity="0"/>
         </linearGradient>
         <linearGradient id="kf-title-crest" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#7ef2ff"/>
-          <stop offset="100%" stop-color="#ff9c2a"/>
+          <stop offset="0%" stop-color="#9cf7ff"/>
+          <stop offset="55%" stop-color="#ffd257"/>
+          <stop offset="100%" stop-color="#ff6e26"/>
         </linearGradient>
-        <filter id="kf-title-glow" x="-12%" y="-25%" width="124%" height="160%">
-          <feDropShadow dx="0" dy="5" stdDeviation="2.2" flood-color="#040812" flood-opacity="0.95"/>
-          <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#38e0ff" flood-opacity="0.34"/>
+        <linearGradient id="kf-title-iron" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3a4c63"/>
+          <stop offset="100%" stop-color="#111722"/>
+        </linearGradient>
+        <filter id="kf-title-glow" x="-12%" y="-25%" width="124%" height="165%">
+          <feDropShadow dx="0" dy="6" stdDeviation="0" flood-color="#05060c" flood-opacity="1"/>
+          <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#38e0ff" flood-opacity="0.32"/>
+          <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="#ff7a29" flood-opacity="0.28"/>
         </filter>
       </defs>
 
-      <!-- Subtle Carved Runic Horizon Spear Behind Wordmark -->
-      <g opacity="0.92">
-        <path d="M52 24 L344 24 L358 10 L380 2 L402 10 L416 24 L708 24" fill="none" stroke="url(#kf-title-forge)" stroke-width="2"/>
-        <polygon points="380,6 394,18 380,30 366,18" fill="#0b1320" stroke="url(#kf-title-crest)" stroke-width="2"/>
-        <path d="M380 10 L380 26 M375 15 L380 11 L385 15 M375 21 L380 25 L385 21" fill="none" stroke="#ffd257" stroke-width="1.6" stroke-linecap="round"/>
+      <!-- Forged Horned Viking Iron Crest & Crossed Rune-Blades Behind Crown -->
+      <g>
+        <path d="M58 34 L356 34 L378 14 L410 4 L442 14 L464 34 L762 34" fill="none" stroke="#060810" stroke-width="6"/>
+        <path d="M58 34 L356 34 L378 14 L410 4 L442 14 L464 34 L762 34" fill="none" stroke="url(#kf-title-forge)" stroke-width="2.6"/>
+        <!-- Horned iron shield crest center -->
+        <path d="M380 28 L358 10 L376 18 Z" fill="#9fb9d1" stroke="#060810" stroke-width="2"/>
+        <path d="M440 28 L462 10 L444 18 Z" fill="#9fb9d1" stroke="#060810" stroke-width="2"/>
+        <polygon points="410,6 432,24 410,42 388,24" fill="url(#kf-title-iron)" stroke="url(#kf-title-crest)" stroke-width="2.4"/>
+        <polygon points="410,12 422,24 410,36 398,24" fill="#09101c" stroke="#38e0ff" stroke-width="1.3"/>
+        <path d="M410 14 L410 34 M404 20 L410 15 L416 20 M404 28 L410 33 L416 28" fill="none" stroke="#ffd257" stroke-width="1.8" stroke-linecap="round"/>
       </g>
 
-      <!-- Forged Steel Silhouette Underlay -->
+      <!-- Deep Thick Heavy-Metal Black Arcade Block Extrusion -->
       <text
-        x="380"
-        y="112"
+        x="410"
+        y="128"
         text-anchor="middle"
-        font-family="Bahnschrift, 'DIN Condensed', 'Segoe UI', Impact, sans-serif"
-        font-size="88"
+        font-family="Impact, 'Bahnschrift', 'DIN Condensed', 'Arial Black', sans-serif"
+        font-size="102"
         font-weight="900"
-        letter-spacing="11"
-        fill="#08101c"
-        stroke="#08101c"
-        stroke-width="12"
-        stroke-linejoin="round"
-        transform="translate(0, 5)"
+        letter-spacing="8"
+        fill="#05060c"
+        stroke="#05060c"
+        stroke-width="18"
+        stroke-linejoin="miter"
+        transform="translate(0, 7)"
       >KRUNKEDFALL</text>
 
-      <!-- Primary Carved Metallic Wordmark -->
+      <!-- Secondary Molten Viking Forge Rim Underlay -->
       <text
-        x="380"
-        y="112"
+        x="410"
+        y="128"
         text-anchor="middle"
-        font-family="Bahnschrift, 'DIN Condensed', 'Segoe UI', Impact, sans-serif"
-        font-size="88"
+        font-family="Impact, 'Bahnschrift', 'DIN Condensed', 'Arial Black', sans-serif"
+        font-size="102"
         font-weight="900"
-        letter-spacing="11"
+        letter-spacing="8"
+        fill="#ff7b24"
+        stroke="#ff7b24"
+        stroke-width="6"
+        stroke-linejoin="miter"
+        transform="translate(0, 3)"
+        opacity="0.9"
+      >KRUNKEDFALL</text>
+
+      <!-- Primary Carved Chrome-Steel & Molten-Edge Wordmark -->
+      <text
+        x="410"
+        y="128"
+        text-anchor="middle"
+        font-family="Impact, 'Bahnschrift', 'DIN Condensed', 'Arial Black', sans-serif"
+        font-size="102"
+        font-weight="900"
+        letter-spacing="8"
         fill="url(#kf-title-metal)"
-        stroke="#15263d"
-        stroke-width="2.5"
+        stroke="#0b111c"
+        stroke-width="3"
+        stroke-linejoin="miter"
         filter="url(#kf-title-glow)"
       >KRUNKEDFALL</text>
 
-      <!-- Bottom Bifrost/Forge Spear Underline -->
-      <rect x="64" y="132" width="632" height="3" fill="url(#kf-title-forge)"/>
-      <polygon points="64,133.5 52,133.5 60,128 60,139" fill="#38e0ff"/>
-      <polygon points="696,133.5 708,133.5 700,128 700,139" fill="#ff7a29"/>
-      <polygon points="380,126 388,133.5 380,141 372,133.5" fill="#ffd257"/>
+      <!-- Sharp Specular Horizon Glint Slashing Across Chrome Letters -->
+      <rect x="86" y="88" width="648" height="2" fill="#ffffff" opacity="0.24"/>
+
+      <!-- Forged Double-Edged Viking Spear Underline -->
+      <rect x="74" y="148" width="672" height="5" fill="#05060c"/>
+      <rect x="78" y="149" width="664" height="3" fill="url(#kf-title-forge)"/>
+      <polygon points="78,150.5 54,150.5 68,143 68,158" fill="#38e0ff" stroke="#05060c" stroke-width="2"/>
+      <polygon points="742,150.5 766,150.5 752,143 752,158" fill="#ff5830" stroke="#05060c" stroke-width="2"/>
+      <polygon points="410,141 421,150.5 410,160 399,150.5" fill="#ffd257" stroke="#05060c" stroke-width="2"/>
     </svg>
   `;
 }

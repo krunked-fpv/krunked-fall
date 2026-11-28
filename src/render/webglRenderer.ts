@@ -42,7 +42,9 @@ import {
 import {
   getBuiltinFontAtlas,
   measurePixelText,
+  resolveBiomeArtFamily,
   selectWeaponArchetypeKey,
+  type BiomeArtFamily,
 } from '../assets/index';
 import {
   FX_MODE_BIFROST,
@@ -194,14 +196,44 @@ interface YSortItem {
   index: number;
 }
 
+interface AfterimageFx {
+  active: boolean;
+  x: number;
+  y: number;
+  spriteKey: string;
+  frame: number;
+  facing: number;
+  r: number;
+  g: number;
+  b: number;
+  life: number;
+  maxLife: number;
+}
+
+interface TracerBeamFx {
+  active: boolean;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  width: number;
+  r: number;
+  g: number;
+  b: number;
+  life: number;
+  maxLife: number;
+}
+
 const DECAL_FBO_SIZE = 1024;
-const MAX_PARTICLES = 512;
+const MAX_PARTICLES = 640;
 const MAX_SLASHES = 32;
-const MAX_EXPLOSIONS = 32;
+const MAX_EXPLOSIONS = 36;
 const MAX_SHOCKWAVES = 8;
 const MAX_FLOATING_TEXTS = 64;
-const MAX_FLASH_LIGHTS = 48;
-const MAX_PENDING_DECALS = 256;
+const MAX_FLASH_LIGHTS = 56;
+const MAX_PENDING_DECALS = 320;
+const MAX_AFTERIMAGES = 24;
+const MAX_TRACERS = 48;
 const WEATHER_COUNT = 110;
 
 // ============================================================================
@@ -392,22 +424,31 @@ function inferEnemySpriteKey(enemy: EnemyState, def?: EnemyDef): string {
   if (enemy.isBoss && enemy.bossId) {
     return `boss_${enemy.bossId}_p${enemy.bossPhase}`;
   }
-  if (def?.spriteKey) return def.spriteKey;
   const id = enemy.defId.toLowerCase();
+  if (id.includes('bear')) return 'enemy_bear';
+  if (id.includes('walker') || id.includes('ganger')) return 'enemy_walker';
+  if (id.includes('trooper') || id === 'bluebandit') return 'enemy_trooper';
+  if (id.includes('cactus')) return 'enemy_cactus';
+  if (id.includes('mushroom') || id.includes('shroom')) return 'enemy_mushroom';
+  if (id.includes('snowman')) return 'enemy_snowman';
+  if (id.includes('bat') || id.includes('raven') || id.includes('fly') || id.includes('fairy') || id.includes('valkyrie') || id.includes('drone') || id.includes('spirit')) {
+    return 'enemy_flier';
+  }
+  if (def?.spriteKey && def.spriteKey !== 'enemy_default') return def.spriteKey;
   if (id.includes('wolf') || id.includes('hound')) return 'enemy_wolf';
-  if (id.includes('viking') || id.includes('berserk') || id.includes('raider')) return 'enemy_viking';
-  if (id.includes('robot') || id.includes('mech') || id.includes('droid') || id.includes('drone')) return 'enemy_robot';
-  if (id.includes('turret') || id.includes('cannon')) return 'enemy_turret';
-  if (id.includes('giant') || id.includes('jotunn') || id.includes('brute') || id.includes('troll')) return 'enemy_giant';
+  if (id.includes('viking') || id.includes('berserk') || id.includes('raider') || id.includes('nog') || id.includes('axe')) return 'enemy_viking';
+  if (id.includes('robot') || id.includes('mech') || id.includes('droid') || id.includes('cyborg') || id.includes('sentinel') || id.includes('destroyer')) return 'enemy_robot';
+  if (id.includes('turret') || id.includes('cannon') || id.includes('bunker') || id.includes('torch') || id.includes('rune')) return 'enemy_turret';
+  if (id.includes('giant') || id.includes('jotunn') || id.includes('brute') || id.includes('troll') || id.includes('crab') || id.includes('mega')) return 'enemy_giant';
   if (id.includes('spider') || id.includes('arach')) return 'enemy_spider';
-  if (id.includes('roach') || id.includes('bug') || id.includes('maggot')) return 'enemy_roach';
-  if (id.includes('slime') || id.includes('ooze') || id.includes('blob')) return 'enemy_slime';
+  if (id.includes('roach') || id.includes('bug') || id.includes('roly')) return 'enemy_roach';
+  if (id.includes('slime') || id.includes('ooze') || id.includes('blob') || id.includes('maggot') || id.includes('axolotl') || id.includes('plurch') || id.includes('saltwit') || id.includes('spitter')) return 'enemy_slime';
   if (id.includes('rat') || id.includes('rodent') || id.includes('mouse')) return 'enemy_rat';
-  if (id.includes('skel') || id.includes('draugr') || id.includes('bone')) return 'enemy_skeleton';
+  if (id.includes('skel') || id.includes('draug') || id.includes('bone') || id.includes('ghoul') || id.includes('cursed') || id.includes('necro')) return 'enemy_skeleton';
   if (id.includes('mimic')) return 'enemy_mimic';
-  if (id.includes('bomb') || id.includes('kamikaze') || id.includes('barrel')) return 'enemy_bomber';
-  if (id.includes('sniper') || id.includes('scout') || id.includes('archer')) return 'enemy_sniper';
-  if (id.includes('bandit') || id.includes('scav')) return 'enemy_bandit';
+  if (id.includes('bomb') || id.includes('kamikaze') || id.includes('barrel') || id.includes('warhead') || id.includes('pyro') || id.includes('cone') || id.includes('pumpkin')) return 'enemy_bomber';
+  if (id.includes('sniper') || id.includes('scout') || id.includes('archer') || id.includes('railgun')) return 'enemy_sniper';
+  if (id.includes('bandit') || id.includes('scav') || id.includes('cannibal')) return 'enemy_bandit';
   return 'enemy_default';
 }
 
@@ -468,6 +509,7 @@ export class WebGL2Renderer {
   // Pre-allocated matrices & uniform buffers
   private readonly worldProj = new Float32Array(16);
   private readonly decalProj = new Float32Array(16);
+  private readonly titleProj = new Float32Array(16);
   private readonly shockwaveUniformData = new Float32Array(MAX_SHOCKWAVES * 4);
 
   // Room tracking for automatic Decal FBO clearing
@@ -477,6 +519,7 @@ export class WebGL2Renderer {
   private frameCounter = 0;
   private lastTimeSec = 0;
   private damageFlash = 0;
+  private afterimageCooldown = 0;
   private visualRng = 0x5f3759df;
 
   // Pre-allocated bounded FX pools (zero per-frame heap churn)
@@ -486,6 +529,8 @@ export class WebGL2Renderer {
   private readonly shockwaves: ShockwaveFx[];
   private readonly floatingTexts: FloatingTextFx[];
   private readonly flashLights: FlashLightFx[];
+  private readonly afterimages: AfterimageFx[];
+  private readonly tracers: TracerBeamFx[];
   private readonly pendingDecals: DecalStamp[] = [];
   private readonly weather: WeatherMote[];
   private readonly ySortBuffer: YSortItem[] = [];
@@ -520,6 +565,14 @@ export class WebGL2Renderer {
     this.flashLights = Array.from({ length: MAX_FLASH_LIGHTS }, () => ({
       active: false, x: 0, y: 0, radius: 48, r: 1, g: 0.8, b: 0.4, intensity: 1, life: 0, maxLife: 0.1,
     }));
+    this.afterimages = Array.from({ length: MAX_AFTERIMAGES }, () => ({
+      active: false, x: 0, y: 0, spriteKey: 'outcast_britta', frame: 0, facing: 1,
+      r: 0.3, g: 0.96, b: 1.0, life: 0, maxLife: 0.22,
+    }));
+    this.tracers = Array.from({ length: MAX_TRACERS }, () => ({
+      active: false, x0: 0, y0: 0, x1: 0, y1: 0, width: 2, r: 1, g: 0.94, b: 0.72, life: 0, maxLife: 0.08,
+    }));
+    makeOrthoMatrix(0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0, this.titleProj);
     this.weather = Array.from({ length: WEATHER_COUNT }, (_, i) => ({
       x: ((i * 73) % LOGICAL_WIDTH),
       y: ((i * 137) % LOGICAL_HEIGHT),
@@ -686,6 +739,8 @@ export class WebGL2Renderer {
     for (let i = 0; i < this.shockwaves.length; i++) this.shockwaves[i].active = false;
     for (let i = 0; i < this.flashLights.length; i++) this.flashLights[i].active = false;
     for (let i = 0; i < this.floatingTexts.length; i++) this.floatingTexts[i].active = false;
+    for (let i = 0; i < this.afterimages.length; i++) this.afterimages[i].active = false;
+    for (let i = 0; i < this.tracers.length; i++) this.tracers[i].active = false;
   }
 
   // ==========================================================================
@@ -697,22 +752,36 @@ export class WebGL2Renderer {
       const ev = events[i];
       switch (ev.type) {
         case 'weapon_fire': {
-          const muzzleX = ev.x + Math.cos(ev.angle) * 12;
-          const muzzleY = ev.y + Math.sin(ev.angle) * 12;
+          const muzzleX = ev.x + Math.cos(ev.angle) * 16;
+          const muzzleY = ev.y - 10 + Math.sin(ev.angle) * 16;
           const col =
             ev.ammoType === 4
-              ? ([0.3, 0.92, 1.0] as const)
+              ? ([0.3, 0.94, 1.0] as const)
               : ev.ammoType === 5
-                ? ([1.0, 0.52, 0.18] as const)
-                : ([1.0, 0.82, 0.45] as const);
-          this.spawnFlashLight(muzzleX, muzzleY, 64, col[0], col[1], col[2], 1.38, 0.09);
-          for (let s = 0; s < 3; s++) {
-            const spread = ev.angle + (this.nextRand() - 0.5) * 0.7;
-            const spd = 25 + this.nextRand() * 45;
+                ? ([1.0, 0.56, 0.18] as const)
+                : ([1.0, 0.86, 0.42] as const);
+          this.spawnFlashLight(muzzleX, muzzleY, 74, col[0], col[1], col[2], 1.52, 0.10);
+          // Crisp incandescent white-hot tracer streak radiating along shot trajectory (heavy-metal punch!)
+          const tracerLen = ev.ammoType === 2 ? 78 : ev.ammoType === 4 ? 115 : 96;
+          const spreadAng = ev.angle + (this.nextRand() - 0.5) * 0.08;
+          this.spawnTracer(
+            muzzleX,
+            muzzleY,
+            muzzleX + Math.cos(spreadAng) * tracerLen,
+            muzzleY + Math.sin(spreadAng) * tracerLen,
+            ev.ammoType === 2 ? 2.4 : 1.8,
+            col[0] * 0.35 + 0.65,
+            col[1] * 0.35 + 0.65,
+            col[2] * 0.35 + 0.65,
+            0.075,
+          );
+          for (let s = 0; s < 4; s++) {
+            const spread = ev.angle + (this.nextRand() - 0.5) * 0.85;
+            const spd = 28 + this.nextRand() * 55;
             this.spawnParticle(
-              muzzleX, muzzleY, 4,
-              Math.cos(spread) * spd, Math.sin(spread) * spd, 12,
-              2, 0.18, 0.75, 0.75, 0.78, 0.55, 'smoke', false
+              muzzleX, muzzleY, 5,
+              Math.cos(spread) * spd, Math.sin(spread) * spd, 14,
+              2.2, 0.22, 0.78, 0.76, 0.80, 0.58, 'smoke', false,
             );
           }
           break;
@@ -865,13 +934,24 @@ export class WebGL2Renderer {
         }
         case 'ability_trigger': {
           this.spawnShockwave(ev.x, ev.y, 0.16, 0.55, 0.28);
-          this.spawnFlashLight(ev.x, ev.y, 72, 0.3, 0.92, 1.0, 1.1, 0.22);
-          for (let p = 0; p < 10; p++) {
+          this.spawnFlashLight(ev.x, ev.y, 82, 0.3, 0.94, 1.0, 1.25, 0.24);
+          this.spawnAfterimage(
+            ev.x,
+            ev.y,
+            `outcast_${ev.outcastId}`,
+            _state.player.animFrame,
+            _state.player.facing,
+            0.32,
+            0.96,
+            1.0,
+            0.28,
+          );
+          for (let p = 0; p < 12; p++) {
             const a = ev.angle + (this.nextRand() - 0.5) * 3.14;
-            const spd = 40 + this.nextRand() * 75;
+            const spd = 40 + this.nextRand() * 82;
             this.spawnParticle(
-              ev.x, ev.y, 5, Math.cos(a) * spd, Math.sin(a) * spd, 20,
-              2, 0.32, 0.3, 0.92, 1.0, 0.95, 'rune', false
+              ev.x, ev.y, 5, Math.cos(a) * spd, Math.sin(a) * spd, 22,
+              2.2, 0.34, 0.3, 0.95, 1.0, 0.95, 'rune', false
             );
           }
           break;
@@ -1106,6 +1186,56 @@ export class WebGL2Renderer {
     }
   }
 
+  private spawnAfterimage(
+    x: number, y: number, spriteKey: string, frame: number, facing: number,
+    r: number, g: number, b: number, maxLife: number
+  ): void {
+    let slot = this.afterimages[0];
+    for (let i = 0; i < this.afterimages.length; i++) {
+      if (!this.afterimages[i].active) {
+        slot = this.afterimages[i];
+        break;
+      }
+      if (this.afterimages[i].life < slot.life) slot = this.afterimages[i];
+    }
+    slot.active = true;
+    slot.x = x;
+    slot.y = y;
+    slot.spriteKey = spriteKey;
+    slot.frame = frame;
+    slot.facing = facing;
+    slot.r = r;
+    slot.g = g;
+    slot.b = b;
+    slot.life = maxLife;
+    slot.maxLife = maxLife;
+  }
+
+  private spawnTracer(
+    x0: number, y0: number, x1: number, y1: number, width: number,
+    r: number, g: number, b: number, maxLife: number
+  ): void {
+    let slot = this.tracers[0];
+    for (let i = 0; i < this.tracers.length; i++) {
+      if (!this.tracers[i].active) {
+        slot = this.tracers[i];
+        break;
+      }
+      if (this.tracers[i].life < slot.life) slot = this.tracers[i];
+    }
+    slot.active = true;
+    slot.x0 = x0;
+    slot.y0 = y0;
+    slot.x1 = x1;
+    slot.y1 = y1;
+    slot.width = width;
+    slot.r = r;
+    slot.g = g;
+    slot.b = b;
+    slot.life = maxLife;
+    slot.maxLife = maxLife;
+  }
+
   private queueDecal(
     x: number, y: number, scale: number, rotation: number,
     r: number, g: number, b: number, a: number,
@@ -1217,6 +1347,23 @@ export class WebGL2Renderer {
       if (fl.life <= 0) fl.active = false;
     }
 
+    // Ghost afterimages
+    this.afterimageCooldown = Math.max(0, this.afterimageCooldown - safeDt);
+    for (let i = 0; i < this.afterimages.length; i++) {
+      const af = this.afterimages[i];
+      if (!af.active) continue;
+      af.life -= safeDt;
+      if (af.life <= 0) af.active = false;
+    }
+
+    // White-hot weapon tracer rays
+    for (let i = 0; i < this.tracers.length; i++) {
+      const tr = this.tracers[i];
+      if (!tr.active) continue;
+      tr.life -= safeDt;
+      if (tr.life <= 0) tr.active = false;
+    }
+
     // Biome Weather particles
     if (weatherKind !== 'none') {
       for (let i = 0; i < this.weather.length; i++) {
@@ -1276,7 +1423,7 @@ export class WebGL2Renderer {
     }
 
     // ------------------------------------------------------------------------
-    // TITLE SCREEN FAST-PATH: Flowing 640x360 Norse Menu Aurora (shMenuAurora)
+    // TITLE SCREEN FAST-PATH: Live Aurora Sky + Hand-Crafted 320x180 Pixel Vista
     // ------------------------------------------------------------------------
     if (state.screenMode === 'title') {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.litFbo.fbo);
@@ -1288,7 +1435,27 @@ export class WebGL2Renderer {
       gl.bindVertexArray(this.emptyVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-      // Upscale 640x360 aurora crisp NEAREST to viewport
+      // Composite crisp 320x180 pixel-art Arctic Viking wasteland panorama cleanly at 2x (= 640x360)!
+      const vista = this.packManager.resolveBuiltinSprite('title_vista_px', 0);
+      batch.begin(shaders.sprite, this.titleProj, timeSec, 'normal');
+      batch.drawQuad(
+        vista.pageTexture,
+        0,
+        0,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        vista.u0,
+        vista.v0,
+        vista.u1,
+        vista.v1,
+        1,
+        1,
+        1,
+        1,
+      );
+      batch.flush();
+
+      // Upscale 640x360 title vista crisp NEAREST to viewport
       this.renderPass6PostFx(state, settings, timeSec, 0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0, 0, 0, 0);
       return;
     }
@@ -1300,10 +1467,47 @@ export class WebGL2Renderer {
 
     this.stepVisualEffects(dt, biome.weather);
 
+    // Spawn sleek ghost afterimages during fast dash, invisibility, or Overdrive!
+    const pSpd = Math.hypot(state.player.vx, state.player.vy);
+    const shouldTrail =
+      state.screenMode === 'combat' &&
+      (pSpd > 3.6 || state.player.powerActiveTicks > 0 || state.player.isInvulnerable);
+    if (shouldTrail && this.afterimageCooldown <= 0) {
+      this.afterimageCooldown = 0.038;
+      const trailCol =
+        state.player.powerActiveTicks > 0
+          ? ([1.0, 0.85, 0.28] as const)
+          : ([0.34, 0.98, 0.82] as const);
+      this.spawnAfterimage(
+        state.player.x,
+        state.player.y,
+        `outcast_${state.player.outcastId}`,
+        state.player.animFrame,
+        state.player.facing,
+        trailCol[0],
+        trailCol[1],
+        trailCol[2],
+        0.24,
+      );
+    }
+
     // Smooth camera (120 FPS interpolation OR Classic 60 FPS Native Pixel-Snap)
     const alpha = settings.pixelSnap60 ? 1.0 : Math.max(0, Math.min(1, interpAlpha));
     let camX = state.camera.prevX + (state.camera.x - state.camera.prevX) * alpha;
     let camY = state.camera.prevY + (state.camera.y - state.camera.prevY) * alpha;
+
+    // Cinematic Boss Framing: gently bias render camera toward active colossal boss (zero sim mutation!)
+    // so the boss's full crown, horns & attacks stay gloriously framed below the Boss HP Bar!
+    if (state.screenMode === 'combat') {
+      const boss = state.enemies.find((e) => e.isBoss && e.hp > 0);
+      if (boss) {
+        const bx = boss.prevX + (boss.x - boss.prevX) * alpha;
+        const by = boss.prevY + (boss.y - boss.prevY) * alpha - 44;
+        camX += Math.max(-72, Math.min(72, (bx - camX) * 0.28));
+        camY += Math.max(-76, Math.min(48, (by - camY) * 0.42));
+      }
+    }
+
     if (settings.pixelSnap60) {
       camX = Math.round(camX);
       camY = Math.round(camY);
@@ -1518,17 +1722,35 @@ export class WebGL2Renderer {
     const maxTy = Math.min(map.height - 1, Math.ceil((viewTop + viewH) / ts) + 2);
 
     const biomeId = (map.biomeId || 'canyon').toLowerCase();
-    const floorBiomeKey = `tile_floor_${biomeId}`;
-    const wallBiomeKey = `tile_wall_${biomeId}`;
-    const wallFaceBiomeKey = `tile_wall_face_${biomeId}`;
+    const artFamily: BiomeArtFamily = resolveBiomeArtFamily(biomeId);
+    const isCustomMode = this.packManager.getMode() === 'custom';
+    const floorBiomeKey = isCustomMode ? `tile_floor_${biomeId}` : `tile_floor_${artFamily}`;
+    const wallBiomeKey = isCustomMode ? `tile_wall_${biomeId}` : `tile_wall_auto_${artFamily}`;
+    const wallFaceBiomeKey = isCustomMode ? `tile_wall_face_${biomeId}` : `tile_wall_face_${artFamily}`;
     const wallBrokenBiomeKey = `tile_wall_broken_${biomeId}`;
     const rubbleBiomeKey = `tile_rubble_${biomeId}`;
+    const bedrockBiomeKey = `tile_bedrock_${artFamily}`;
     const animFrame4 = Math.floor(timeSec * 5) % 4;
     const white = this.packManager.getWhitePixel();
 
+    const isSolidWall = (tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return true;
+      const tk = map.tiles[ty * map.width + tx] as TileKind;
+      return tk === TileKind.WallDestructible || tk === TileKind.WallBedrock;
+    };
+
+    // Subtle sub-biome tint nudge when multiple sub-biomes share an art family
+    let subFloorTint: readonly [number, number, number] = [1.0, 1.0, 1.0];
+    if (biomeId === 'desert') subFloorTint = [1.14, 1.06, 0.90];
+    else if (biomeId === 'saltpan') subFloorTint = [1.24, 1.20, 1.18];
+    else if (biomeId === 'mushroom') subFloorTint = [1.18, 0.82, 1.22];
+    else if (biomeId === 'shrine') subFloorTint = [1.15, 0.86, 1.06];
+    else if (biomeId === 'ashwastes' || biomeId === 'ash_wastes') subFloorTint = [1.12, 1.12, 1.16];
+    else if (biomeId === 'lab') subFloorTint = [0.92, 1.06, 1.18];
+
     batch.begin(shaders.sprite, this.worldProj, timeSec, 'normal');
 
-    // 1A. Walkable Floors, Rubble, Lava (sh_surtur_lava_lake), Water (sh_deep_water_distort)
+    // 1A. Organic Low-Contrast Biome Floors, Rubble, Churning Lava & Acid/Water
     for (let ty = minTy; ty <= maxTy; ty++) {
       const rowOffset = ty * map.width;
       const wy = ty * ts;
@@ -1537,6 +1759,7 @@ export class WebGL2Renderer {
         const wx = tx * ts;
         const tileHash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
         const hash4 = tileHash & 3;
+        const hash8 = tileHash & 7;
 
         if (kind === TileKind.Lava) {
           const sp = this.packManager.resolveSprite('tile_lava', (animFrame4 + hash4) % 4);
@@ -1552,34 +1775,29 @@ export class WebGL2Renderer {
           batch.drawQuad(
             sp.pageTexture, wx, wy, ts, ts,
             u0, sp.v0, u1, sp.v1,
-            1, 1, 1, 1, 0, FX_MODE_LAVA
+            1, 1, 1, 1, 0, FX_MODE_LAVA,
           );
           continue;
         }
         if (kind === TileKind.PitOrWater) {
-          // Always render shimmering Built-In animated water/ice chasm with FX_MODE_WATER ripple
-          const sp = this.packManager.resolveBuiltinSprite('tile_water', (animFrame4 + hash4) % 4);
-          const isIceBiome = biomeId === 'jotunheim' || biomeId === 'ice_cave' || biomeId === 'saltpan';
+          const isAcidBiome = artFamily === 'sewer' || artFamily === 'forest' || artFamily === 'darkcity';
+          const sp = this.packManager.resolveBuiltinSprite(
+            isAcidBiome ? 'tile_acid' : 'tile_water',
+            (animFrame4 + hash4) % 4,
+          );
           batch.drawQuad(
             sp.pageTexture, wx, wy, ts, ts,
             sp.u0, sp.v0, sp.u1, sp.v1,
-            isIceBiome ? 0.72 : 0.90,
-            isIceBiome ? 0.96 : 0.95,
-            1.0,
-            1.0,
-            0,
-            FX_MODE_WATER
+            1, 1, 1, 1, 0, FX_MODE_WATER,
           );
           continue;
         }
 
-        // Draw floor underneath walkable / rubble / crate tiles
+        // Draw seamless biome floor underneath walkable / rubble / crate tiles
         if (kind !== TileKind.WallDestructible && kind !== TileKind.WallBedrock) {
-          const sp = this.packManager.resolveSpriteWithFallback(floorBiomeKey, 'tile_floor', hash4);
+          const sp = this.packManager.resolveSpriteWithFallback(floorBiomeKey, 'tile_floor', hash8);
           let u0 = sp.u0;
           let u1 = sp.u1;
-          // Retail multi-tile horizontal strips (e.g. 128x16..464x16):
-          // Slot 0 in GMS2 floor tilesets is reserved as the bright editor/template square — ALWAYS skip slot 0!
           if (sp.width >= 32 && sp.height <= 24) {
             const count = Math.max(1, Math.floor(sp.width / 16));
             const idx = count > 1 ? 1 + (tileHash % (count - 1)) : 0;
@@ -1588,26 +1806,22 @@ export class WebGL2Renderer {
             u1 = sp.u0 + du * ((idx + 1) / count);
           }
           if (sp.sourcePack === 'custom') {
-            // Pure bright (1,1,1,1) for Custom Pack retail floor tiles, with gentle lift for darkcity asphalt
             const lift = biomeId === 'darkcity' ? 1.55 : 1.05;
             batch.drawQuad(
               sp.pageTexture, wx, wy, ts, ts,
               u0, sp.v0, u1, sp.v1,
-              lift, lift, biomeId === 'darkcity' ? 1.65 : 1.05, 1
+              lift, lift, biomeId === 'darkcity' ? 1.65 : 1.05, 1,
             );
           } else {
-            const col = (tx + ty) % 2 === 0 ? floorA : floorB;
+            // Built-in biome-authored art: pure hue-shifted biome palette (NO muddy grid tinting!)
             batch.drawQuad(
               sp.pageTexture, wx, wy, ts, ts,
               u0, sp.v0, u1, sp.v1,
-              Math.min(1, col[0] * 1.24),
-              Math.min(1, col[1] * 1.24),
-              Math.min(1, col[2] * 1.24),
-              1
+              subFloorTint[0], subFloorTint[1], subFloorTint[2], 1,
             );
           }
           if (kind === TileKind.Rubble) {
-            const rub = this.packManager.resolveSpriteWithFallback(rubbleBiomeKey, 'tile_rubble', 0);
+            const rub = this.packManager.resolveSpriteWithFallback(rubbleBiomeKey, 'tile_rubble', hash4 & 1);
             let ru0 = rub.u0;
             let ru1 = rub.u1;
             if (rub.width >= 32 && rub.height <= 24) {
@@ -1618,28 +1832,97 @@ export class WebGL2Renderer {
               ru0 = rub.u0 + du * (idx / count);
               ru1 = rub.u0 + du * ((idx + 1) / count);
             }
-            if (rub.sourcePack === 'custom') {
-              batch.drawQuad(
-                rub.pageTexture, wx, wy, ts, ts,
-                ru0, rub.v0, ru1, rub.v1,
-                1, 1, 1, 1
-              );
-            } else {
-              batch.drawQuad(
-                rub.pageTexture, wx, wy, ts, ts,
-                ru0, rub.v0, ru1, rub.v1,
-                Math.min(1, wallTopCol[0] * 1.15),
-                Math.min(1, wallTopCol[1] * 1.15),
-                Math.min(1, wallTopCol[2] * 1.15),
-                1
-              );
-            }
+            batch.drawQuad(
+              rub.pageTexture, wx, wy, ts, ts,
+              ru0, rub.v0, ru1, rub.v1,
+              1, 1, 1, 1,
+            );
           }
         }
       }
     }
 
-    // 1B. Composite Persistent Floor Decals (Pass 2 output) OVER floors & UNDER walls/actors!
+    // 1A-bis. Rare Hand-Curated Biome Storytelling Floor Props (Zero Collision, Never Clutters Floor!)
+    const hasWallNearby = (tx: number, ty: number): boolean =>
+      isSolidWall(tx, ty - 1) ||
+      isSolidWall(tx, ty + 1) ||
+      isSolidWall(tx - 1, ty) ||
+      isSolidWall(tx + 1, ty);
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      const rowOffset = ty * map.width;
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        if ((map.tiles[rowOffset + tx] as TileKind) !== TileKind.Floor) continue;
+        // Skip tiles adjacent to walls or crates so floor props breathe cleanly in open spaces
+        if (hasWallNearby(tx, ty)) continue;
+        const propHash = (((tx * 374761393) ^ (ty * 668265263) ^ 0x5bd1e995) >>> 0) % 1000;
+        const wx = tx * ts + ts * 0.5;
+        const wy = ty * ts + ts * 0.5;
+        // Keep clear of spawn, exit, and boss arena center!
+        if (Math.hypot(wx - map.spawnX, wy - map.spawnY) < 56) continue;
+        if (Math.hypot(wx - map.exitX, wy - map.exitY) < 64) continue;
+        if (state.screenMode === 'hub') {
+          // Hub: only subtle rare mossy tufts & occasional soft snow wisps near edges
+          if (propHash >= 14 && propHash < 992) continue;
+        }
+
+        let propKey: string | null = null;
+        if (artFamily === 'hub') {
+          if (propHash < 10) propKey = 'prop_snow_drift';
+          else if (propHash >= 992) propKey = 'prop_moss_cluster';
+        } else if (artFamily === 'jotunheim') {
+          if (propHash < 14) propKey = 'prop_snow_drift';
+          else if (propHash >= 994) propKey = 'prop_bone_fragments';
+        } else if (artFamily === 'darkcity') {
+          if (propHash < 4) propKey = 'prop_rusted_car';
+          else if (propHash < 14) propKey = 'prop_sewer_grate';
+          else if (propHash >= 995) propKey = 'prop_tech_pad';
+        } else if (artFamily === 'forest') {
+          if (propHash < 16) propKey = 'prop_moss_cluster';
+          else if (propHash >= 994) propKey = 'prop_broken_pillar';
+        } else if (artFamily === 'sewer') {
+          if (propHash < 12) propKey = 'prop_sewer_grate';
+          else if (propHash < 20) propKey = 'prop_moss_cluster';
+        } else if (artFamily === 'helheim') {
+          if (propHash < 10) propKey = 'prop_skull_pile';
+          else if (propHash < 20) propKey = 'prop_bone_fragments';
+        } else if (artFamily === 'muspelheim') {
+          if (propHash < 10) propKey = 'prop_ember_vent';
+          else if (propHash >= 994) propKey = 'prop_skull_pile';
+        } else {
+          // canyon / desert
+          if (propHash < 9) propKey = 'prop_bone_fragments';
+          else if (propHash < 14) propKey = 'prop_skull_pile';
+          else if (propHash >= 996) propKey = 'prop_rusted_car';
+          else if (propHash >= 991) propKey = 'prop_broken_pillar';
+        }
+
+        if (propKey) {
+          const psp = this.packManager.resolveBuiltinSprite(propKey, 0);
+          batch.drawSprite(
+            psp.pageTexture,
+            wx,
+            wy,
+            psp.width,
+            psp.height,
+            psp.originX,
+            psp.originY,
+            1,
+            1,
+            0,
+            psp.u0,
+            psp.v0,
+            psp.u1,
+            psp.v1,
+            1,
+            1,
+            1,
+            propKey === 'prop_snow_drift' ? 0.92 : 0.96,
+          );
+        }
+      }
+    }
+
+    // 1B. Composite Persistent Floor Decals (Blood, Blast Craters, Shell Casings) OVER floors!
     const decalFbo = this.decalActiveIndex === 0 ? this.decalFboA! : this.decalFboB!;
     batch.drawQuad(
       decalFbo.tex,
@@ -1654,11 +1937,11 @@ export class WebGL2Renderer {
       1,
       1,
       1,
-      1
+      1,
     );
 
-    // 1C. 3D-Extruded Walls (Top Cap + South Front Face + Progressive Crack Overlays) & Crates
-    const wallDepth = 8;
+    // 1C. 3D-Extruded 16-State Autotiled Seamless Walls (12px Tall South Faces!) & 2.5D Crates
+    const wallDepth = 12;
     for (let ty = minTy; ty <= maxTy; ty++) {
       const rowOffset = ty * map.width;
       const wy = ty * ts;
@@ -1669,32 +1952,43 @@ export class WebGL2Renderer {
         const tileHash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
 
         if (kind === TileKind.CoverCrate) {
-          const crate = this.packManager.resolveSprite('tile_crate', 0);
-          batch.drawQuad(
-            crate.pageTexture, wx, wy - 2, ts, ts,
-            crate.u0, crate.v0, crate.u1, crate.v1,
-            1, 1, 1, 1
+          const crateVariant = tileHash % 5 === 0 ? 1 : 0; // 20% rusted explosive barrels, 80% iron-bound Norse crates
+          const crate = this.packManager.resolveSprite('tile_crate', crateVariant);
+          batch.drawSprite(
+            crate.pageTexture,
+            wx + ts * 0.5,
+            wy + ts - 2,
+            crate.width,
+            crate.height,
+            crate.originX,
+            crate.originY,
+            1,
+            1,
+            0,
+            crate.u0,
+            crate.v0,
+            crate.u1,
+            crate.v1,
+            1,
+            1,
+            1,
+            1,
           );
           continue;
         }
 
         if (kind === TileKind.WallDestructible || kind === TileKind.WallBedrock) {
-          const belowWall =
-            ty + 1 < map.height &&
-            (map.tiles[(ty + 1) * map.width + tx] === TileKind.WallDestructible ||
-              map.tiles[(ty + 1) * map.width + tx] === TileKind.WallBedrock);
+          const nWall = isSolidWall(tx, ty - 1);
+          const eWall = isSolidWall(tx + 1, ty);
+          const sWall = isSolidWall(tx, ty + 1);
+          const wWall = isSolidWall(tx - 1, ty);
+          const autoMask = (nWall ? 1 : 0) | (eWall ? 2 : 0) | (sWall ? 4 : 0) | (wWall ? 8 : 0);
 
-          // South 3D front face when exposed above walkable ground
-          if (!belowWall) {
+          // South 12px tall 3D front face when exposed above walkable ground
+          if (!sWall) {
             const faceProbe = this.packManager.resolveSpriteWithFallback(wallFaceBiomeKey, 'tile_wall_face', 0);
-            const face =
-              faceProbe.sourcePack === 'custom' && faceProbe.frameCount > 1
-                ? this.packManager.resolveSpriteWithFallback(
-                    wallFaceBiomeKey,
-                    'tile_wall_face',
-                    tileHash % faceProbe.frameCount
-                  )
-                : faceProbe;
+            const faceIdx = faceProbe.frameCount > 1 ? tileHash % faceProbe.frameCount : 0;
+            const face = this.packManager.resolveSpriteWithFallback(wallFaceBiomeKey, 'tile_wall_face', faceIdx);
             if (face.sourcePack === 'custom') {
               const fScale = kind === TileKind.WallBedrock ? 0.86 : 1.0;
               batch.drawQuad(
@@ -1710,10 +2004,10 @@ export class WebGL2Renderer {
                 0.92 * fScale,
                 0.92 * fScale,
                 0.96 * fScale,
-                1
+                1,
               );
             } else {
-              const fCol = kind === TileKind.WallBedrock ? ([0.48, 0.50, 0.62] as const) : wallFaceCol;
+              const bScale = kind === TileKind.WallBedrock ? 0.88 : 1.0;
               batch.drawQuad(
                 face.pageTexture,
                 wx,
@@ -1724,52 +2018,52 @@ export class WebGL2Renderer {
                 face.v0,
                 face.u1,
                 face.v1,
-                Math.min(1, fCol[0] * 1.18),
-                Math.min(1, fCol[1] * 1.18),
-                Math.min(1, fCol[2] * 1.18),
-                1
+                subFloorTint[0] * bScale,
+                subFloorTint[1] * bScale,
+                subFloorTint[2] * bScale,
+                1,
               );
             }
-            // Crisp dark base contact lip along bottom edge of wall front face
+          }
+
+          // Top cap raised 12px for dramatic 2.5D top-down depth!
+          // Deep interior bedrock renders seamless void/cliff rock; exposed edges use full 16-state autotiling!
+          if (!isCustomMode) {
+            const useBedrockFill = kind === TileKind.WallBedrock && autoMask === 15;
+            const topSp = useBedrockFill
+              ? this.packManager.resolveBuiltinSprite(bedrockBiomeKey, 0)
+              : this.packManager.resolveBuiltinSprite(wallBiomeKey, autoMask);
+            const bScale = kind === TileKind.WallBedrock && !useBedrockFill ? 0.86 : 1.0;
             batch.drawQuad(
-              white.pageTexture,
+              topSp.pageTexture,
               wx,
-              wy + ts - 1,
+              wy - wallDepth,
               ts,
+              ts,
+              topSp.u0,
+              topSp.v0,
+              topSp.u1,
+              topSp.v1,
+              subFloorTint[0] * bScale,
+              subFloorTint[1] * bScale,
+              subFloorTint[2] * bScale,
               1,
-              white.u0,
-              white.v0,
-              white.u1,
-              white.v1,
-              0.03,
-              0.03,
-              0.06,
-              0.78
             );
-          }
-
-          // Top cap raised for crisp 2.5D top-down depth
-          const topProbe =
-            kind === TileKind.WallBedrock && this.packManager.getMode() !== 'custom'
-              ? this.packManager.resolveSprite('tile_bedrock', 0)
-              : this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', 0);
-          // For Custom Pack multi-frame retail walls, pick textured roof/brick frames
-          // (in darkcity, frames 1/3/4/5 are 1-color flat interior fills while 0/2/6/7 are textured)
-          let wallFrameIdx = 0;
-          if (topProbe.sourcePack === 'custom' && topProbe.frameCount > 1) {
-            if (biomeId === 'darkcity') {
-              const texturedDarkcity = [0, 2, 6, 7];
-              wallFrameIdx = texturedDarkcity[tileHash % texturedDarkcity.length] % topProbe.frameCount;
-            } else {
-              wallFrameIdx = 1 + (tileHash % Math.min(6, topProbe.frameCount - 1));
+          } else {
+            const topProbe = this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', 0);
+            let wallFrameIdx = 0;
+            if (topProbe.sourcePack === 'custom' && topProbe.frameCount > 1) {
+              if (biomeId === 'darkcity') {
+                const texturedDarkcity = [0, 2, 6, 7];
+                wallFrameIdx = texturedDarkcity[tileHash % texturedDarkcity.length] % topProbe.frameCount;
+              } else {
+                wallFrameIdx = 1 + (tileHash % Math.min(6, topProbe.frameCount - 1));
+              }
             }
-          }
-          const topSp =
-            topProbe.sourcePack === 'custom' && topProbe.frameCount > 1
-              ? this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', wallFrameIdx)
-              : topProbe;
-
-          if (topSp.sourcePack === 'custom') {
+            const topSp =
+              topProbe.sourcePack === 'custom' && topProbe.frameCount > 1
+                ? this.packManager.resolveSpriteWithFallback(wallBiomeKey, 'tile_wall', wallFrameIdx)
+                : topProbe;
             const topR = kind === TileKind.WallBedrock ? 0.92 : 1.08;
             const topG = kind === TileKind.WallBedrock ? 0.95 : 1.08;
             const topB = kind === TileKind.WallBedrock ? 1.02 : 1.12;
@@ -1786,10 +2080,9 @@ export class WebGL2Renderer {
               topR,
               topG,
               topB,
-              1
+              1,
             );
-            // Crisp 1px top-rim bevel highlight along exposed south wall edge
-            if (!belowWall) {
+            if (!sWall) {
               batch.drawQuad(
                 white.pageTexture,
                 wx,
@@ -1803,26 +2096,9 @@ export class WebGL2Renderer {
                 0.72,
                 0.78,
                 0.90,
-                0.28
+                0.28,
               );
             }
-          } else {
-            const tCol = kind === TileKind.WallBedrock ? ([0.95, 0.95, 1.05] as const) : wallTopCol;
-            batch.drawQuad(
-              topSp.pageTexture,
-              wx,
-              wy - wallDepth,
-              ts,
-              ts,
-              topSp.u0,
-              topSp.v0,
-              topSp.u1,
-              topSp.v1,
-              Math.min(1.1, tCol[0] * 1.32),
-              Math.min(1.1, tCol[1] * 1.32),
-              Math.min(1.1, tCol[2] * 1.32),
-              1
-            );
           }
 
           // Progressive crack overlays at <66% and <33% HP
@@ -1835,7 +2111,7 @@ export class WebGL2Renderer {
                 const crackProbe = this.packManager.resolveSpriteWithFallback(
                   wallBrokenBiomeKey,
                   'tile_wall_broken',
-                  0
+                  0,
                 );
                 const crackFrame =
                   crackProbe.sourcePack === 'custom'
@@ -1848,7 +2124,7 @@ export class WebGL2Renderer {
                 const crackSp = this.packManager.resolveSpriteWithFallback(
                   wallBrokenBiomeKey,
                   'tile_wall_broken',
-                  crackFrame
+                  crackFrame,
                 );
                 batch.drawQuad(
                   crackSp.pageTexture,
@@ -1863,7 +2139,7 @@ export class WebGL2Renderer {
                   1.02,
                   1.02,
                   1.02,
-                  1
+                  1,
                 );
               }
             }
@@ -1872,66 +2148,45 @@ export class WebGL2Renderer {
       }
     }
 
-    // 1C-bis. Visible Glowing Norse Rune Braziers in Boss Arenas (anchored to Pass 5 lights)
+    // 1C-bis. Hand-Crafted Animated Iron Fire Braziers in Boss Arenas & Hub Outpost (placed strictly on open floor!)
     const hasBossActive = state.enemies.some((e) => e.isBoss) || state.activeBossId !== null;
-    if (hasBossActive && state.screenMode === 'combat') {
-      const arenaW = map.width * ts;
-      const arenaH = map.height * ts;
-      const insetX = ts * 4.5;
-      const insetY = ts * 4.5;
-      const acc = biome.accentGlow;
-      const braziers: readonly (readonly [number, number])[] = [
-        [insetX, insetY],
-        [arenaW - insetX, insetY],
-        [insetX, arenaH - insetY],
-        [arenaW - insetX, arenaH - insetY],
-        [insetX, arenaH * 0.5],
-        [arenaW - insetX, arenaH * 0.5],
-      ];
-      for (let b = 0; b < braziers.length; b++) {
-        const [bx, by] = braziers[b];
-        const flicker = 0.85 + Math.sin(timeSec * 11 + b * 2.1) * 0.15;
-        // Dark iron rune pedestal (10x8)
-        batch.drawQuad(
-          white.pageTexture,
-          Math.round(bx - 5),
-          Math.round(by - 3),
-          10,
-          7,
-          white.u0, white.v0, white.u1, white.v1,
-          0.12, 0.14, 0.20, 0.95
-        );
-        // Inner carved metallic bowl (8x4)
-        batch.drawQuad(
-          white.pageTexture,
-          Math.round(bx - 4),
-          Math.round(by - 4),
-          8,
-          4,
-          white.u0, white.v0, white.u1, white.v1,
-          0.32, 0.36, 0.46, 1.0
-        );
-        // Glowing flickering Norse flame core (6x5 + 2px hot core)
-        batch.drawQuad(
-          white.pageTexture,
-          Math.round(bx - 3),
-          Math.round(by - 7 - Math.round(flicker)),
-          6,
-          5,
-          white.u0, white.v0, white.u1, white.v1,
-          Math.min(1, acc[0] * 1.15),
-          Math.min(1, acc[1] * 1.15),
-          Math.min(1, acc[2] * 1.15),
-          0.95
-        );
-        batch.drawQuad(
-          white.pageTexture,
-          Math.round(bx - 1),
-          Math.round(by - 6),
-          2,
-          3,
-          white.u0, white.v0, white.u1, white.v1,
-          1.0, 0.96, 0.85, 1.0
+    if ((hasBossActive && state.screenMode === 'combat') || state.screenMode === 'hub') {
+      const brazierList: readonly (readonly [number, number])[] =
+        state.screenMode === 'hub'
+          ? [
+              [8.5 * ts, 8.2 * ts],
+              [8.5 * ts, 17.8 * ts],
+              [26.5 * ts, 8.2 * ts],
+              [26.5 * ts, 17.8 * ts],
+            ]
+          : [
+              [ts * 5.5, ts * 5.2],
+              [map.width * ts - ts * 5.5, ts * 5.2],
+              [ts * 5.5, map.height * ts - ts * 5.2],
+              [map.width * ts - ts * 5.5, map.height * ts - ts * 5.2],
+            ];
+      for (let b = 0; b < brazierList.length; b++) {
+        const [bx, by] = brazierList[b];
+        const bsp = this.packManager.resolveBuiltinSprite('prop_brazier', (animFrame4 + b) % 4);
+        batch.drawSprite(
+          bsp.pageTexture,
+          bx,
+          by,
+          bsp.width,
+          bsp.height,
+          bsp.originX,
+          bsp.originY,
+          1,
+          1,
+          0,
+          bsp.u0,
+          bsp.v0,
+          bsp.u1,
+          bsp.v1,
+          1,
+          1,
+          1,
+          1,
         );
       }
     }
@@ -1995,80 +2250,87 @@ export class WebGL2Renderer {
       }
     }
 
-    // 1E. Hub Outpost Landmarks (Norse Sanctuary Floor Circuitry + Distinct Station Pads)
+    // 1E. Monumental Hub Outpost Landmarks (Carved Stone Bifrost Amphitheater + Shrines!)
     if (state.screenMode === 'hub' && state.hubInteractables.length > 0) {
       const wu = (white.u0 + white.u1) * 0.5;
       const wv = (white.v0 + white.v1) * 0.5;
-      const cx = map.spawnX;
-      const cy = map.spawnY;
 
-      // Central Norse Sanctuary Rune Ring around Three-Rock Outpost spawn
-      const hubPulse = 0.55 + 0.25 * Math.sin(timeSec * 2.4);
-      batch.drawArcRibbon(
-        white.pageTexture, wu, wv,
-        cx, cy + 4, 24, 26, 0, Math.PI * 2, 28,
-        0.24, 0.78, 0.96, 0.26 * hubPulse
-      );
-      batch.drawArcRibbon(
-        white.pageTexture, wu, wv,
-        cx, cy + 4, 15, 16.5, 0, Math.PI * 2, 20,
-        1.0, 0.76, 0.28, 0.22 * hubPulse
+      // Ground Norse tech-rune sanctuary pad under spawn point
+      const spawnPad = this.packManager.resolveBuiltinSprite('prop_tech_pad', 0);
+      batch.drawSprite(
+        spawnPad.pageTexture,
+        map.spawnX,
+        map.spawnY + 2,
+        spawnPad.width,
+        spawnPad.height,
+        spawnPad.originX,
+        spawnPad.originY,
+        1.15,
+        1.15,
+        0,
+        spawnPad.u0,
+        spawnPad.v0,
+        spawnPad.u1,
+        spawnPad.v1,
+        0.92,
+        0.98,
+        1.0,
+        0.92,
       );
 
       for (let i = 0; i < state.hubInteractables.length; i++) {
         const item = state.hubInteractables[i];
         const dist = Math.hypot(state.player.x - item.x, state.player.y - item.y);
-        const near = dist <= item.radius + 18;
+        const near = dist <= item.radius + 20;
 
-        // Distinct color-coded Norse ground rune ring under each station
-        const ringCol =
-          item.id === 'loki'
-            ? ([0.22, 0.98, 0.62] as const)
-            : item.id === 'jotunn_matic'
-              ? ([0.22, 0.90, 1.0] as const)
-              : item.id === 'skill_tree'
-                ? ([0.52, 1.0, 0.38] as const)
-                : item.id === 'modifiers'
-                  ? ([0.82, 0.36, 1.0] as const)
-                  : item.id === 'weapondex'
-                    ? ([1.0, 0.72, 0.24] as const)
-                    : item.id === 'enemydex'
-                      ? ([1.0, 0.32, 0.42] as const)
-                      : item.id === 'bifrost'
-                        ? ([0.38, 0.96, 1.0] as const)
-                        : ([1.0, 0.86, 0.36] as const);
-
-        // Subtle luminous floor conduit line linking central ring to each station pad
-        const dxC = item.x - cx;
-        const dyC = item.y + 4 - (cy + 4);
-        const dC = Math.hypot(dxC, dyC);
-        if (dC > 38) {
-          const ux = dxC / dC;
-          const uy = dyC / dC;
-          batch.drawLine(
-            white.pageTexture, wu, wv,
-            cx + ux * 26, cy + 4 + uy * 26,
-            item.x - ux * (item.radius * 0.8), item.y + 4 - uy * (item.radius * 0.8),
-            1.4, ringCol[0], ringCol[1], ringCol[2], near ? 0.38 : 0.14
+        // Subtle glowing interact highlight ONLY when player approaches a station (zero wireframe clutter!)
+        if (near) {
+          const pulse = 0.72 + 0.28 * Math.sin(timeSec * 6.5);
+          batch.drawArcRibbon(
+            white.pageTexture,
+            wu,
+            wv,
+            item.x,
+            item.y + 4,
+            item.radius * 0.72,
+            item.radius * 0.86,
+            0,
+            Math.PI * 2,
+            24,
+            0.35,
+            0.96,
+            1.0,
+            0.82 * pulse,
           );
         }
 
-        batch.drawArcRibbon(
-          white.pageTexture,
-          wu,
-          wv,
-          item.x,
-          item.y + 4,
-          item.radius * 0.68,
-          item.radius * 0.78,
-          0,
-          Math.PI * 2,
-          20,
-          ringCol[0],
-          ringCol[1],
-          ringCol[2],
-          near ? 0.92 : 0.48
-        );
+        // Monumental 128x128 Carved Stone Bifrost Rune Amphitheater in Built-In Mode (framed cleanly in viewport!)
+        if (item.id === 'bifrost' && !isCustomMode) {
+          const ringSp = this.packManager.resolveBuiltinSprite('hub_bifrost_ring', animFrame4);
+          batch.drawSprite(
+            ringSp.pageTexture,
+            item.x,
+            item.y + 16,
+            ringSp.width,
+            ringSp.height,
+            ringSp.originX,
+            ringSp.originY,
+            0.74,
+            0.74,
+            0,
+            ringSp.u0,
+            ringSp.v0,
+            ringSp.u1,
+            ringSp.v1,
+            1,
+            1,
+            1,
+            1,
+            near ? 0.14 : 0,
+            FX_MODE_NORMAL,
+          );
+          continue;
+        }
 
         let key = 'hub_jotunn';
         let fxMode = FX_MODE_NORMAL;
@@ -2084,7 +2346,6 @@ export class WebGL2Renderer {
           fxMode = FX_MODE_BIFROST;
         }
 
-        // Custom Pack hub computers use f0 as the solid full machine (f1-2 are glow masks only!)
         const frameIdx = this.packManager.getMode() === 'custom' && item.id !== 'bifrost'
           ? 0
           : Math.floor(timeSec * 3) % 4;
@@ -2099,7 +2360,6 @@ export class WebGL2Renderer {
         const drawRot = item.id === 'bifrost' && !isWideCustomArch ? timeSec * 0.9 : 0;
 
         if (isWideCustomArch) {
-          // Retail Hub Bifrost middle sprite is a lower rainbow half-crescent; mirror both halves into a full portal disc!
           const halfYOffset = sp.height * drawScale * 0.44;
           batch.drawSprite(
             sp.pageTexture,
@@ -2113,7 +2373,7 @@ export class WebGL2Renderer {
             -drawScale,
             0,
             sp.u0, sp.v0, sp.u1, sp.v1,
-            1, 1, 1, 0.94, near ? 0.14 : 0, fxMode
+            1, 1, 1, 0.94, near ? 0.14 : 0, fxMode,
           );
           batch.drawSprite(
             sp.pageTexture,
@@ -2127,13 +2387,13 @@ export class WebGL2Renderer {
             drawScale,
             0,
             sp.u0, sp.v0, sp.u1, sp.v1,
-            1, 1, 1, 1, near ? 0.14 : 0, fxMode
+            1, 1, 1, 1, near ? 0.14 : 0, fxMode,
           );
         } else {
           batch.drawSprite(
             sp.pageTexture,
             item.x,
-            item.y,
+            item.y + 4,
             sp.width,
             sp.height,
             sp.originX,
@@ -2145,7 +2405,7 @@ export class WebGL2Renderer {
             sp.v0,
             sp.u1,
             sp.v1,
-            1, 1, 1, 1, near ? 0.14 : 0, fxMode
+            1, 1, 1, 1, near ? 0.14 : 0, fxMode,
           );
         }
       }
@@ -2184,32 +2444,61 @@ export class WebGL2Renderer {
 
     batch.begin(shaders.sprite, this.worldProj, timeSec, 'normal');
 
-    // Cast wall drop shadows along south edges
+    // Cast deep dramatic 3D wall drop shadows (10px South + 6px East projection!)
     const minTx = Math.max(0, Math.floor(viewLeft / ts) - 1);
     const maxTx = Math.min(map.width - 1, Math.ceil((viewLeft + viewW) / ts) + 1);
     const minTy = Math.max(0, Math.floor(viewTop / ts) - 1);
     const maxTy = Math.min(map.height - 1, Math.ceil((viewTop + viewH) / ts) + 1);
+    const isWallAt = (tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return false;
+      const k = map.tiles[ty * map.width + tx] as TileKind;
+      return k === TileKind.WallDestructible || k === TileKind.WallBedrock;
+    };
     for (let ty = minTy; ty <= maxTy; ty++) {
       for (let tx = minTx; tx <= maxTx; tx++) {
         const k = map.tiles[ty * map.width + tx] as TileKind;
         if (k === TileKind.WallDestructible || k === TileKind.WallBedrock) {
-          if (ty + 1 < map.height) {
-            const below = map.tiles[(ty + 1) * map.width + tx] as TileKind;
-            if (below !== TileKind.WallDestructible && below !== TileKind.WallBedrock) {
-              batch.drawQuad(
-                white.pageTexture,
-                tx * ts + 1,
-                (ty + 1) * ts,
-                ts,
-                6,
-                white.u0,
-                white.v0,
-                white.u1,
-                white.v1,
-                0.02, 0.02, 0.05, 1.0, 0, FX_MODE_SHADOW
-              );
-            }
+          if (ty + 1 < map.height && !isWallAt(tx, ty + 1)) {
+            batch.drawQuad(
+              white.pageTexture,
+              tx * ts + 2,
+              (ty + 1) * ts,
+              ts,
+              10,
+              white.u0,
+              white.v0,
+              white.u1,
+              white.v1,
+              0.01, 0.01, 0.04, 1.0, 0, FX_MODE_SHADOW,
+            );
           }
+          if (tx + 1 < map.width && !isWallAt(tx + 1, ty)) {
+            batch.drawQuad(
+              white.pageTexture,
+              (tx + 1) * ts,
+              ty * ts - 4,
+              6,
+              ts + 8,
+              white.u0,
+              white.v0,
+              white.u1,
+              white.v1,
+              0.01, 0.01, 0.04, 1.0, 0, FX_MODE_SHADOW,
+            );
+          }
+        } else if (k === TileKind.CoverCrate) {
+          batch.drawQuad(
+            white.pageTexture,
+            tx * ts + 3,
+            ty * ts + 5,
+            ts,
+            ts - 1,
+            white.u0,
+            white.v0,
+            white.u1,
+            white.v1,
+            0.02, 0.01, 0.05, 1.0, 0, FX_MODE_SHADOW,
+          );
         }
       }
     }
@@ -2218,7 +2507,7 @@ export class WebGL2Renderer {
       batch.drawSprite(
         shadowSp.pageTexture,
         x + 2,
-        y + 2,
+        y + 3,
         shadowSp.width,
         shadowSp.height,
         shadowSp.originX,
@@ -2230,49 +2519,89 @@ export class WebGL2Renderer {
         shadowSp.v0,
         shadowSp.u1,
         shadowSp.v1,
-        0.04, 0.03, 0.08, 1.0, 0, FX_MODE_SHADOW
+        0.02, 0.01, 0.05, 1.0, 0, FX_MODE_SHADOW,
       );
     };
 
-    // Player shadow
+    // True angled cast silhouette shadow (heavy-metal arcade directional sun shadow!)
+    const drawSkewedShadow = (sp: ResolvedSprite, x: number, y: number, facing: number, scale = 1.0) => {
+      const sx = facing < 0 ? -scale : scale;
+      const footX0 = x - sp.originX * sx;
+      const footX1 = x + (sp.width - sp.originX) * sx;
+      const footY = y + 2;
+      const topHeight = sp.originY * scale;
+      const skewX = topHeight * 0.38;
+      const squashY = topHeight * 0.42;
+      // Top of sprite projects southeast across the floor!
+      batch.drawArbitraryQuad(
+        sp.pageTexture,
+        footX0 + skewX, footY + squashY,
+        footX1 + skewX, footY + squashY,
+        footX1, footY,
+        footX0, footY,
+        sp.u0, sp.v0,
+        sp.u1, sp.v1,
+        0.02, 0.01, 0.05, 1.0, 0, FX_MODE_SHADOW,
+      );
+    };
+
+    // Player skewed silhouette shadow + grounding contact oval
     const px = this.interpCoord(state.player.prevX, state.player.x, alpha, pixelSnap);
     const py = this.interpCoord(state.player.prevY, state.player.y, alpha, pixelSnap);
-    drawOvalShadow(px, py + 2, 0.85, 0.72);
+    const pSp = this.packManager.resolveSprite(`outcast_${state.player.outcastId}`, state.player.animFrame);
+    drawSkewedShadow(pSp, px, py, state.player.facing, 1.0);
+    drawOvalShadow(px, py + 1, 0.95, 0.72);
 
-    // Enemies & Bosses
+    // Enemies & Colossal Bosses skewed silhouette shadows!
     for (let i = 0; i < state.enemies.length; i++) {
       const e = state.enemies[i];
       const ex = this.interpCoord(e.prevX, e.x, alpha, pixelSnap);
       const ey = this.interpCoord(e.prevY, e.y, alpha, pixelSnap);
-      const sc = e.isBoss ? Math.max(1.8, e.radius / 11) : Math.max(0.65, e.radius / 10);
-      drawOvalShadow(ex, ey + 2, sc, sc * 0.75);
+      const eDef = this.resolvers.getEnemyDef?.(e.defId);
+      const bDef = e.isBoss && e.bossId ? this.resolvers.getBossDef?.(e.bossId) : undefined;
+      const sKey = e.isBoss && bDef
+        ? (e.bossPhase === 2 ? bDef.spritePhase2Key : bDef.spritePhase1Key)
+        : inferEnemySpriteKey(e, eDef);
+      const eSp = this.packManager.resolveSprite(sKey, e.animFrame);
+      drawSkewedShadow(eSp, ex, ey, e.facing, 1.0);
+      const sc = e.isBoss ? Math.max(2.6, e.radius / 9) : Math.max(0.85, e.radius / 9);
+      drawOvalShadow(ex, ey + 2, sc, sc * 0.72);
+    }
+
+    // Hub Landmarks cast shadows
+    if (state.screenMode === 'hub') {
+      for (let i = 0; i < state.hubInteractables.length; i++) {
+        const it = state.hubInteractables[i];
+        if (it.id === 'bifrost') continue;
+        drawOvalShadow(it.x + 2, it.y + 4, 1.55, 0.95);
+      }
     }
 
     // Pickups, Companions, Frost Crystals, Projectiles
     for (let i = 0; i < state.pickups.length; i++) {
       const p = state.pickups[i];
-      drawOvalShadow(p.x, p.y + 3, 0.55, 0.5);
+      drawOvalShadow(p.x, p.y + 3, 0.62, 0.52);
     }
     for (let i = 0; i < state.companions.length; i++) {
       const c = state.companions[i];
       const cx = this.interpCoord(c.prevX, c.x, alpha, pixelSnap);
       const cy = this.interpCoord(c.prevY, c.y, alpha, pixelSnap);
-      drawOvalShadow(cx, cy + 3, 0.7, 0.6);
+      drawOvalShadow(cx, cy + 3, 0.75, 0.6);
     }
     for (let i = 0; i < state.freezeStorm.crystals.length; i++) {
       const cr = state.freezeStorm.crystals[i];
-      drawOvalShadow(cr.x, cr.y + 5, 0.85, 0.7);
+      drawOvalShadow(cr.x, cr.y + 5, 0.95, 0.72);
     }
     for (let i = 0; i < state.projectiles.length; i++) {
       const pr = state.projectiles[i];
       if (!pr.isMelee) {
-        drawOvalShadow(pr.x, pr.y + 5, 0.35 * pr.scale, 0.28 * pr.scale);
+        drawOvalShadow(pr.x, pr.y + 6, 0.42 * pr.scale, 0.32 * pr.scale);
       }
     }
 
     batch.flush();
 
-    // Composite unified Shadow Surface cleanly onto Scene FBO (single uniform alpha!)
+    // Composite unified Shadow Surface cleanly onto Scene FBO (crisp deep 0.54 shadow contrast!)
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFbo!.fbo);
     gl.viewport(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     batch.begin(shaders.sprite, this.worldProj, timeSec, 'normal');
@@ -2289,7 +2618,7 @@ export class WebGL2Renderer {
       1,
       1,
       1,
-      0.42
+      0.54,
     );
     batch.flush();
   }
@@ -2327,6 +2656,57 @@ export class WebGL2Renderer {
         this.drawBossTelegraph(batch, white.pageTexture, wu, wv, e.bossTelegraph, timeSec);
       }
     }
+
+    // 4A-bis. Dash / Ability / Overdrive Ghost Afterimages (crisp translucent silhouette trail!)
+    batch.setBlend('additive');
+    for (let i = 0; i < this.afterimages.length; i++) {
+      const af = this.afterimages[i];
+      if (!af.active) continue;
+      const t = Math.max(0, af.life / af.maxLife);
+      const sp = this.packManager.resolveSprite(af.spriteKey, af.frame);
+      batch.drawSprite(
+        sp.pageTexture,
+        af.x,
+        af.y,
+        sp.width,
+        sp.height,
+        sp.originX,
+        sp.originY,
+        af.facing < 0 ? -1 : 1,
+        1,
+        0,
+        sp.u0,
+        sp.v0,
+        sp.u1,
+        sp.v1,
+        af.r,
+        af.g,
+        af.b,
+        t * 0.58,
+        0.25,
+      );
+    }
+    // White-hot ballistic muzzle tracer streaks!
+    for (let i = 0; i < this.tracers.length; i++) {
+      const tr = this.tracers[i];
+      if (!tr.active) continue;
+      const t = Math.max(0, tr.life / tr.maxLife);
+      batch.drawLine(
+        white.pageTexture,
+        wu,
+        wv,
+        tr.x0,
+        tr.y0,
+        tr.x1,
+        tr.y1,
+        tr.width * (0.45 + 0.55 * t),
+        tr.r,
+        tr.g,
+        tr.b,
+        t * 0.72,
+      );
+    }
+    batch.setBlend('normal');
 
     // 4B. Build Y-Sorted Entity Draw Queue (zero allocations via reused buffer)
     let count = 0;
@@ -2500,14 +2880,15 @@ export class WebGL2Renderer {
       const ex = this.explosions[i];
       if (!ex.active) continue;
       const progress = 1 - ex.life / ex.maxLife;
-      const frame = Math.min(4, Math.floor(progress * 5));
+      const frame = Math.min(5, Math.floor(progress * 6));
       const sp = this.packManager.resolveSprite('fx_explosion', frame);
-      const scale = (ex.radius * 2.1) / Math.max(16, sp.width);
+      // Clamp scale tightly around 0.85..1.35 so our 72x72 comic blast stays 100% pixel-crisp (ZERO mixels!)
+      const scale = Math.max(0.85, Math.min(1.35, (ex.radius * 1.95) / Math.max(32, sp.width)));
       batch.drawSprite(
         sp.pageTexture, ex.x, ex.y, sp.width, sp.height,
         sp.originX, sp.originY, scale, scale, 0,
         sp.u0, sp.v0, sp.u1, sp.v1,
-        ex.r * 0.45 + 0.55, ex.g * 0.45 + 0.55, ex.b * 0.45 + 0.55, 1
+        ex.r * 0.35 + 0.65, ex.g * 0.35 + 0.65, ex.b * 0.35 + 0.65, 1,
       );
     }
 
@@ -2572,31 +2953,60 @@ export class WebGL2Renderer {
         const text = near ? `[E] ${baseName}` : baseName;
         // Strict integer scale = 1 so every 5x7 bitmap pixel column renders 100% crisp with zero dropped strokes!
         const scale = 1;
-        const labelY = Math.round(item.y - (item.id === 'skill_tree' ? 46 : 40));
+        const heightOffset =
+          item.id === 'skill_tree'
+            ? 74
+            : item.id === 'jotunn_matic'
+              ? 58
+              : item.id === 'bifrost'
+                ? 36
+                : item.id === 'training_dummy'
+                  ? 44
+                  : 50;
+        const labelY = Math.round(item.y - heightOffset);
         const measured = measurePixelText(text, scale);
-        const pillW = Math.round(measured.width + 6);
-        const pillH = Math.round(measured.height + 3);
-        const pillX = Math.round(item.x - pillW * 0.5);
-        const pillY = labelY - 2;
-        batch.drawQuad(
-          white.pageTexture,
-          pillX,
-          pillY,
-          pillW,
-          pillH,
-          white.u0,
-          white.v0,
-          white.u1,
-          white.v1,
-          0.04,
-          0.06,
-          0.11,
-          near ? 0.88 : 0.72
-        );
         if (near) {
-          this.drawPixelText(batch, text, item.x, labelY, scale, 0.42, 0.98, 1.0, 1.0, true);
+          const pillW = Math.round(measured.width + 8);
+          const pillH = Math.round(measured.height + 4);
+          const pillX = Math.round(item.x - pillW * 0.5);
+          const pillY = labelY - 2;
+          // Crisp forged-iron frame around active [E] prompt
+          batch.drawQuad(
+            white.pageTexture,
+            pillX - 1,
+            pillY - 1,
+            pillW + 2,
+            pillH + 2,
+            white.u0,
+            white.v0,
+            white.u1,
+            white.v1,
+            0.22,
+            0.84,
+            0.96,
+            0.9,
+          );
+          batch.drawQuad(
+            white.pageTexture,
+            pillX,
+            pillY,
+            pillW,
+            pillH,
+            white.u0,
+            white.v0,
+            white.u1,
+            white.v1,
+            0.04,
+            0.06,
+            0.12,
+            0.94,
+          );
+          this.drawPixelText(batch, text, item.x, labelY, scale, 0.48, 0.99, 1.0, 1.0, true);
         } else {
-          this.drawPixelText(batch, text, item.x, labelY, scale, 0.94, 0.90, 0.74, 0.95, true);
+          // Clean floating etched label with crisp 1px dark ink drop-shadow (no boxy rectangle clutter!)
+          this.drawPixelText(batch, text, item.x + 1, labelY + 1, scale, 0.03, 0.04, 0.08, 0.92, true);
+          this.drawPixelText(batch, text, item.x, labelY + 1, scale, 0.03, 0.04, 0.08, 0.85, true);
+          this.drawPixelText(batch, text, item.x, labelY, scale, 0.95, 0.89, 0.72, 0.92, true);
         }
       }
     }
@@ -3009,10 +3419,10 @@ export class WebGL2Renderer {
     const activeDef = this.resolvers.getWeaponDef?.(activeWeapon.uniqueId);
     const secondaryDef = secondaryWeapon ? this.resolvers.getWeaponDef?.(secondaryWeapon.uniqueId) : undefined;
 
-    // 1. Stashed Secondary Weapon on Outcast's Back (using stashedOffset)
+    // 1. Stashed Secondary Weapon on Outcast's Back (cleanly proportioned for 34x34 heroes!)
     if (secondaryWeapon) {
-      const offX = (secondaryDef?.stashedOffset?.x ?? -4) * p.facing;
-      const offY = (secondaryDef?.stashedOffset?.y ?? -9);
+      const offX = (secondaryDef?.stashedOffset?.x ?? -6) * p.facing;
+      const offY = (secondaryDef?.stashedOffset?.y ?? -13);
       const stashSp = this.resolveWeaponSprite(secondaryWeapon, secondaryDef);
       batch.drawSprite(
         stashSp.pageTexture,
@@ -3022,8 +3432,8 @@ export class WebGL2Renderer {
         stashSp.height,
         stashSp.originX,
         stashSp.originY,
-        p.facing * 0.85,
-        0.85,
+        p.facing * 0.82,
+        0.82,
         p.facing > 0 ? -2.25 : 2.25,
         stashSp.u0,
         stashSp.v0,
@@ -3034,7 +3444,7 @@ export class WebGL2Renderer {
         0.88,
         p.isInvisible ? 0.35 : 0.95,
         0,
-        secondaryWeapon.golden ? FX_MODE_GOLDEN : FX_MODE_NORMAL
+        secondaryWeapon.golden ? FX_MODE_GOLDEN : FX_MODE_NORMAL,
       );
     }
 
@@ -3093,9 +3503,9 @@ export class WebGL2Renderer {
       );
     }
 
-    // 3. Active Held Weapon (aim rotated, flipped upright left/right, recoil kick, laser sight & muzzle flash)
-    const handX = px + Math.cos(p.aimAngle) * 4;
-    const handY = py - 8 + Math.sin(p.aimAngle) * 2;
+    // 3. Active Held Weapon (chunky hand mount at py - 11, recoil kick, laser sight & muzzle flash)
+    const handX = px + Math.cos(p.aimAngle) * 5;
+    const handY = py - 11 + Math.sin(p.aimAngle) * 3;
     const aimLeft = Math.cos(p.aimAngle) < 0;
     const kick = activeWeapon.recoilOffset || 0;
     const recAng = (activeWeapon.recoilAngle || 0) * (aimLeft ? 1 : -1) * (Math.PI / 180);
@@ -3288,13 +3698,13 @@ export class WebGL2Renderer {
       return;
     }
 
-    // 5A. Render additive point lights into lightFbo cleared to lifted readable biome ambientColor
+    // 5A. Render additive point lights into lightFbo cleared to rich moody biome ambientColor
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.lightFbo!.fbo);
     gl.viewport(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     const amb = biome.ambientColor;
-    const ambR = Math.min(0.88, Math.max(0.54, amb[0] * 1.65));
-    const ambG = Math.min(0.88, Math.max(0.54, amb[1] * 1.65));
-    const ambB = Math.min(0.88, Math.max(0.58, amb[2] * 1.65));
+    const ambR = Math.min(0.76, Math.max(0.42, amb[0] * 1.18));
+    const ambG = Math.min(0.76, Math.max(0.42, amb[1] * 1.18));
+    const ambB = Math.min(0.80, Math.max(0.46, amb[2] * 1.22));
     gl.clearColor(ambR, ambG, ambB, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -3303,9 +3713,9 @@ export class WebGL2Renderer {
     // Player crisp warm-cyan visibility lantern light + Outcast Power overdrive aura
     const px = this.interpCoord(state.player.prevX, state.player.x, alpha, settings.pixelSnap60);
     const py = this.interpCoord(state.player.prevY, state.player.y, alpha, settings.pixelSnap60);
-    batch.drawLight(px, py - 6, 128, 0.78, 0.92, 1.0, 0.92, 1.65, 0);
+    batch.drawLight(px, py - 10, 148, 0.88, 0.94, 1.0, 0.86, 1.65, 0);
     if (state.player.powerActiveTicks > 0) {
-      batch.drawLight(px, py - 6, 108, 1.0, 0.80, 0.28, 1.05, 1.55, 2.2);
+      batch.drawLight(px, py - 10, 124, 1.0, 0.82, 0.28, 1.12, 1.55, 2.2);
     }
 
     // Active projectiles glowing light pools
@@ -3338,25 +3748,23 @@ export class WebGL2Renderer {
       }
     }
 
-    // Glowing Arena Corner Braziers & Flank Rune Lights in Boss Arenas
+    // Glowing Arena Corner Braziers in Boss Arenas (synced with dry-floor corner braziers!)
     if (hasBoss && state.screenMode === 'combat') {
       const ts = state.map.tileSize || TILE_SIZE;
       const arenaW = state.map.width * ts;
       const arenaH = state.map.height * ts;
       const acc = biome.accentGlow;
-      const insetX = ts * 4.5;
-      const insetY = ts * 4.5;
+      const insetX = ts * 5.5;
+      const insetY = ts * 5.2;
       const braziers: readonly (readonly [number, number])[] = [
-        [insetX, insetY],
-        [arenaW - insetX, insetY],
-        [insetX, arenaH - insetY],
-        [arenaW - insetX, arenaH - insetY],
-        [insetX, arenaH * 0.5],
-        [arenaW - insetX, arenaH * 0.5],
+        [insetX, insetY - 10],
+        [arenaW - insetX, insetY - 10],
+        [insetX, arenaH - insetY - 10],
+        [arenaW - insetX, arenaH - insetY - 10],
       ];
       for (let b = 0; b < braziers.length; b++) {
         const [bx, by] = braziers[b];
-        batch.drawLight(bx, by, 124, acc[0], acc[1], acc[2], 0.76, 1.75, b * 1.3 + 0.7);
+        batch.drawLight(bx, by, 128, acc[0], acc[1], acc[2], 0.80, 1.75, b * 1.3 + 0.7);
       }
     }
 
@@ -3388,17 +3796,17 @@ export class WebGL2Renderer {
       batch.drawLight(state.map.exitX, state.map.exitY, 116, r, g, b, 1.22, 1.65, 1.0);
     }
 
-    // Hub Landmarks ambient neon glows + 4 Hub Pillar Rune Braziers
+    // Hub Landmarks ambient neon glows + 4 Hub Courtyard Fire Braziers (synced to exact open-floor bowls!)
     if (state.screenMode === 'hub') {
       const ts = state.map.tileSize || TILE_SIZE;
       const hubBraziers: readonly (readonly [number, number])[] = [
-        [10.5 * ts, 6.5 * ts],
-        [10.5 * ts, 17.5 * ts],
-        [24.5 * ts, 6.5 * ts],
-        [24.5 * ts, 17.5 * ts],
+        [8.5 * ts, 8.2 * ts - 10],
+        [8.5 * ts, 17.8 * ts - 10],
+        [26.5 * ts, 8.2 * ts - 10],
+        [26.5 * ts, 17.8 * ts - 10],
       ];
       for (let b = 0; b < hubBraziers.length; b++) {
-        batch.drawLight(hubBraziers[b][0], hubBraziers[b][1], 96, 1.0, 0.68, 0.30, 0.64, 1.75, b + 0.5);
+        batch.drawLight(hubBraziers[b][0], hubBraziers[b][1], 108, 1.0, 0.64, 0.24, 0.82, 1.72, b + 0.5);
       }
 
       for (let i = 0; i < state.hubInteractables.length; i++) {
@@ -3419,12 +3827,14 @@ export class WebGL2Renderer {
                       : it.id === 'bifrost'
                         ? ([0.36, 0.94, 1.0] as const)
                         : ([0.98, 0.76, 0.34] as const);
-        batch.drawLight(it.x, it.y - 12, 96, hc[0], hc[1], hc[2], 0.90, 1.70, i + 1);
+        const rad = it.id === 'bifrost' ? 148 : 102;
+        batch.drawLight(it.x, it.y - 12, rad, hc[0], hc[1], hc[2], it.id === 'bifrost' ? 1.15 : 0.90, 1.68, i + 1);
       }
     }
 
-    // Sampled glowing Lava tiles within visible viewport
-    if (biome.hasLavaLake || state.act === 3) {
+    // Sampled glowing Lava & Toxic Acid tiles within visible viewport
+    const artFam = resolveBiomeArtFamily(state.screenMode === 'hub' ? 'hub' : state.map.biomeId);
+    if (biome.hasLavaLake || state.act === 3 || artFam === 'sewer' || artFam === 'forest' || artFam === 'darkcity') {
       const map = state.map;
       const ts = map.tileSize || TILE_SIZE;
       const minTx = Math.max(0, Math.floor(viewLeft / ts));
@@ -3433,8 +3843,11 @@ export class WebGL2Renderer {
       const maxTy = Math.min(map.height - 1, Math.ceil((viewTop + viewH) / ts));
       for (let ty = minTy; ty <= maxTy; ty += 2) {
         for (let tx = minTx; tx <= maxTx; tx += 2) {
-          if (map.tiles[ty * map.width + tx] === TileKind.Lava) {
-            batch.drawLight(tx * ts + 8, ty * ts + 8, 46, 1.0, 0.42, 0.12, 0.55, 2.0, tx + ty);
+          const tk = map.tiles[ty * map.width + tx] as TileKind;
+          if (tk === TileKind.Lava) {
+            batch.drawLight(tx * ts + 8, ty * ts + 8, 52, 1.0, 0.42, 0.12, 0.65, 1.95, tx + ty);
+          } else if (tk === TileKind.PitOrWater && (artFam === 'sewer' || artFam === 'forest' || artFam === 'darkcity')) {
+            batch.drawLight(tx * ts + 8, ty * ts + 8, 44, 0.42, 0.98, 0.26, 0.52, 2.0, tx + ty);
           }
         }
       }

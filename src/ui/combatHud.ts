@@ -153,8 +153,8 @@ export class CombatHud {
     this.portraitBox = document.createElement('div');
     this.portraitBox.className = 'kf-hud-portrait';
     this.portraitImg = document.createElement('img');
-    this.portraitImg.width = 30;
-    this.portraitImg.height = 30;
+    this.portraitImg.width = 36;
+    this.portraitImg.height = 36;
     this.portraitImg.className = 'kf-pixel-img';
     this.portraitImg.alt = '';
     this.portraitBox.appendChild(this.portraitImg);
@@ -356,8 +356,8 @@ export class CombatHud {
       const thumbWrap = document.createElement('div');
       thumbWrap.className = 'kf-weapon-hud-thumb';
       const thumbImg = document.createElement('img');
-      thumbImg.width = 34;
-      thumbImg.height = 20;
+      thumbImg.width = 48;
+      thumbImg.height = 26;
       thumbImg.className = 'kf-pixel-img';
       thumbImg.alt = '';
       thumbWrap.appendChild(thumbImg);
@@ -557,7 +557,7 @@ export class CombatHud {
     if (pSig !== this.lastPortraitSig) {
       this.lastPortraitSig = pSig;
       this.portraitBox.style.borderColor = outcast.accentColor;
-      const url = getOutcastPortraitUrl(p.outcastId, p.skinId, 32);
+      const url = getOutcastPortraitUrl(p.outcastId, p.skinId, 36);
       if (url) {
         this.portraitImg.src = url;
         this.portraitImg.style.display = 'block';
@@ -785,7 +785,7 @@ export class CombatHud {
     const thumbSig = `${inst.uniqueId}|${inst.golden ? 'g' : 'n'}`;
     if (thumbSig !== this.lastWeaponThumbSigs[slot]) {
       this.lastWeaponThumbSigs[slot] = thumbSig;
-      const url = getWeaponThumbUrl(def.ammoType, def.class, def.uniqueId, inst.golden, 44, 24);
+      const url = getWeaponThumbUrl(def.ammoType, def.class, def.uniqueId, inst.golden, 48, 26);
       if (url) {
         this.slotThumbs[slot].src = url;
         this.slotThumbs[slot].style.display = 'block';

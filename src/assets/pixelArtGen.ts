@@ -1,11 +1,18 @@
 // ============================================================================
-// KRUNKEDFALL — Procedural Pixel-Art Engine (DOM-Free, Deterministic)
+// KRUNKEDFALL — Master Heavy-Metal Pixel-Art Sculpting Engine (DOM-Free)
 // ============================================================================
-// Pure Uint8ClampedArray RGBA pixel buffer with crisp outlines, metallic
-// bevels, Norse runes, cel-shaded volumes, Bayer dithering, and shelf atlas
-// packing. Runs identically in headless Node (Gate A) and Browser WebGL2.
+// Pure Uint8ClampedArray RGBA pixel buffer engineered for indie-studio 32-bit
+// comic-book pixel art:
+//   - Hue-shifted 6-stop material color ramps (warm highlights, cool shadows)
+//   - Ordered 4x4 Bayer dithering transitions
+//   - Per-part anatomical sub-layer sculpting with crisp internal ink seams
+//   - Shaded cylinders, flame plumes, fur tufts, iron chains, cracks & runes
+//   - 2048x2048 deterministic shelf atlas packing (Node & Browser WebGL2)
 
 export type RGBA = readonly [number, number, number, number];
+
+/** 6-stop hue-shifted pixel-art ramp: [ink, deep, shadow, mid, hi, spec] */
+export type ColorRamp = readonly [RGBA, RGBA, RGBA, RGBA, RGBA, RGBA];
 
 export function hexToRgba(hex: string, alpha = 255): RGBA {
   const clean = hex.charCodeAt(0) === 35 ? hex.slice(1) : hex;
@@ -20,6 +27,24 @@ export function hexToRgba(hex: string, alpha = 255): RGBA {
   const b = parseInt(clean.slice(4, 6), 16) & 0xff;
   const a = clean.length >= 8 ? parseInt(clean.slice(6, 8), 16) & 0xff : alpha;
   return [r, g, b, a];
+}
+
+export function makeRamp(
+  ink: string,
+  deep: string,
+  shadow: string,
+  mid: string,
+  hi: string,
+  spec: string,
+): ColorRamp {
+  return [
+    hexToRgba(ink),
+    hexToRgba(deep),
+    hexToRgba(shadow),
+    hexToRgba(mid),
+    hexToRgba(hi),
+    hexToRgba(spec),
+  ] as const;
 }
 
 export function shadeColor(c: RGBA, factor: number): RGBA {
@@ -41,9 +66,83 @@ export function mixColor(a: RGBA, b: RGBA, t: number): RGBA {
   ];
 }
 
-export const INK_OUTLINE: RGBA = [12, 10, 18, 255];
-export const INK_DARK: RGBA = [22, 18, 30, 255];
+export const INK_OUTLINE: RGBA = [11, 8, 20, 255]; // #0b0814 deep comic ink
+export const INK_DARK: RGBA = [22, 17, 34, 255]; // #161122 internal seam ink
 export const TRANSPARENT: RGBA = [0, 0, 0, 0];
+
+// Curated Hue-Shifted Heavy-Metal Cyber-Norse Material Ramps
+export const RAMPS = {
+  // Cool teal-tinted forged steel (iconic Norse armor)
+  steel: makeRamp('#0b0814', '#182438', '#2e4561', '#5a7e9c', '#9ec9de', '#e2f7ff'),
+  // Dark gunmetal / iron
+  iron: makeRamp('#0b0814', '#161826', '#282d40', '#485269', '#7b8aa3', '#bfd0e3'),
+  // Gleaming cyber-chrome
+  chrome: makeRamp('#0b0814', '#23334a', '#456382', '#7da4bf', '#c2e4f5', '#ffffff'),
+  // Warm forged Nordic gold
+  gold: makeRamp('#0b0814', '#3d1c0c', '#7a3f10', '#c97e18', '#f5c238', '#fff4a8'),
+  // Aged bronze / brass
+  bronze: makeRamp('#0b0814', '#2e1610', '#5c2e1c', '#99552d', '#cf8948', '#f5cb82'),
+  // Weathered timber / wood
+  wood: makeRamp('#0b0814', '#24120c', '#452314', '#754122', '#a86938', '#d49a62'),
+  // Tanned battle leather
+  leather: makeRamp('#0b0814', '#211214', '#402120', '#693930', '#965d48', '#bf886b'),
+  // Warm hero skin
+  skin: makeRamp('#0b0814', '#4d2324', '#8a483a', '#c97e5d', '#edb18a', '#ffe0bd'),
+  // Wolf / Viking pelt fur
+  fur: makeRamp('#0b0814', '#1f1924', '#3b303d', '#63535c', '#948185', '#c7b8b4'),
+  // Crimson / blood armor & cloaks
+  crimson: makeRamp('#0b0814', '#330a18', '#6b1228', '#b52236', '#f25252', '#ffa68c'),
+  // Blazing magma / fire
+  fire: makeRamp('#0b0814', '#470c14', '#9e1f14', '#e85a14', '#ffba24', '#fff9b8'),
+  // Glacial Jotunheim ice
+  ice: makeRamp('#0b0814', '#13284a', '#1f5382', '#3a94c4', '#8ce6ff', '#f0ffff'),
+  // Radioactive toxic lime
+  toxic: makeRamp('#0b0814', '#103018', '#1d6624', '#45b828', '#a6f538', '#f2ffa6'),
+  // Emerald rune / Yggdrasil
+  emerald: makeRamp('#0b0814', '#0b2924', '#145946', '#22a36e', '#63e89c', '#ccffdc'),
+  // Ancient skull & bone
+  bone: makeRamp('#0b0814', '#38303b', '#695d63', '#a69994', '#dbcfc1', '#fcf7eb'),
+  // Volcanic obsidian / Helheim plate
+  obsidian: makeRamp('#0b0814', '#161124', '#281f3d', '#443661', '#6f5c91', '#a996c9'),
+  // Void / plasma magenta-purple
+  void: makeRamp('#0b0814', '#2a0d3d', '#5c187a', '#a32bc4', '#f257d8', '#ffc2f7'),
+  // Cyber-cyan plasma
+  cyan: makeRamp('#0b0814', '#0b2a47', '#0f5c8a', '#1aa8d9', '#61f0ff', '#e8ffff'),
+  // Troll / goblin hide
+  troll: makeRamp('#0b0814', '#1b2e1c', '#2e522b', '#4d823b', '#83b856', '#c6e68a'),
+  // Rusted wasteland scrap
+  rust: makeRamp('#0b0814', '#2e1312', '#5c2419', '#994122', '#cf6e36', '#f2a963'),
+  // Wolf slate cyber-fur
+  wolfSlate: makeRamp('#0b0814', '#191e2e', '#2e384f', '#51627d', '#869bb5', '#c5d8eb'),
+  // Deep crimson phase-2 hellplate
+  hellPlate: makeRamp('#0b0814', '#240b14', '#4a1423', '#7d2433', '#ba484b', '#f2907e'),
+} as const;
+
+// Classic 4x4 Bayer ordered dithering threshold matrix normalized to [-0.5, 0.5]
+const BAYER_4X4 = [
+  0, 8, 2, 10,
+  12, 4, 14, 6,
+  3, 11, 1, 9,
+  15, 7, 13, 5,
+];
+
+export function bayer4(x: number, y: number): number {
+  const idx = ((y & 3) << 2) | (x & 3);
+  return BAYER_4X4[idx] / 16 - 0.5;
+}
+
+/**
+ * Sample a 6-stop hue-shifted ColorRamp at normalized light value t in [0..1]
+ * with optional ordered Bayer dithering at pixel (x, y).
+ */
+export function sampleRamp(ramp: ColorRamp, t: number, x = 0, y = 0, ditherAmt = 0.14): RGBA {
+  const v = Math.max(0, Math.min(1, t + bayer4(x, y) * ditherAmt));
+  if (v < 0.16) return ramp[1]; // deep shadow
+  if (v < 0.38) return ramp[2]; // shadow
+  if (v < 0.66) return ramp[3]; // midtone
+  if (v < 0.88) return ramp[4]; // highlight
+  return ramp[5]; // specular
+}
 
 /**
  * Deterministic 32-bit xorshift hash for surface texture grain & dithering.
@@ -52,6 +151,45 @@ export function pixelHash(x: number, y: number, seed: number): number {
   let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041)) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+/**
+ * Smooth 2D value noise (deterministic) for organic cracks, moss, snowdrifts & stone.
+ */
+export function valueNoise2D(x: number, y: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = pixelHash(ix, iy, seed);
+  const b = pixelHash(ix + 1, iy, seed);
+  const c = pixelHash(ix, iy + 1, seed);
+  const d = pixelHash(ix + 1, iy + 1, seed);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+
+/**
+ * Tileable periodic value noise on a [period x period] grid so seamless tiles have zero seams!
+ */
+export function tileableNoise2D(x: number, y: number, period: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const wrap = (v: number) => ((v % period) + period) % period;
+  const x0 = wrap(ix);
+  const x1 = wrap(ix + 1);
+  const y0 = wrap(iy);
+  const y1 = wrap(iy + 1);
+  const a = pixelHash(x0, y0, seed);
+  const b = pixelHash(x1, y0, seed);
+  const c = pixelHash(x0, y1, seed);
+  const d = pixelHash(x1, y1, seed);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }
 
 export class PixelSurface {
@@ -129,6 +267,55 @@ export class PixelSurface {
     }
   }
 
+  /**
+   * Sculpted armored plate rectangle using a full hue-shifted ColorRamp + Bayer dither + rivets.
+   */
+  drawRampPlate(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    ramp: ColorRamp,
+    rivets = false,
+    outline = true,
+  ): void {
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const iw = Math.floor(w);
+    const ih = Math.floor(h);
+    for (let py = 0; py < ih; py++) {
+      const ny = ih > 1 ? py / (ih - 1) : 0;
+      for (let px = 0; px < iw; px++) {
+        const nx = iw > 1 ? px / (iw - 1) : 0;
+        let col: RGBA;
+        if (py === 0 || px === 0) {
+          col = py === 0 && px < iw - 1 ? ramp[4] : ramp[3];
+        } else if (py === ih - 1 || px === iw - 1) {
+          col = ramp[1];
+        } else {
+          const light = (1 - ny) * 0.68 + (1 - nx) * 0.25 + 0.05;
+          col = sampleRamp(ramp, light, x0 + px, y0 + py, 0.13);
+        }
+        this.setPx(x0 + px, y0 + py, col);
+      }
+    }
+    if (rivets && iw >= 6 && ih >= 6) {
+      const pts: readonly [number, number][] = [
+        [x0 + 2, y0 + 2],
+        [x0 + iw - 3, y0 + 2],
+        [x0 + 2, y0 + ih - 3],
+        [x0 + iw - 3, y0 + ih - 3],
+      ];
+      for (const [rx, ry] of pts) {
+        this.setPx(rx, ry, ramp[5]);
+        this.setPx(rx, ry + 1, ramp[1]);
+      }
+    }
+    if (outline) {
+      this.drawRectOutline(x0 - 1, y0 - 1, iw + 2, ih + 2, ramp[0]);
+    }
+  }
+
   drawRectOutline(x: number, y: number, w: number, h: number, c: RGBA): void {
     this.fillRect(x, y, w, 1, c);
     this.fillRect(x, y + h - 1, w, 1, c);
@@ -171,9 +358,9 @@ export class PixelSurface {
     y1: number,
     radius: number,
     c: RGBA,
-    blend = false
+    blend = false,
   ): void {
-    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 1.5));
+    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 1.6));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const px = x0 + (x1 - x0) * t;
@@ -187,7 +374,52 @@ export class PixelSurface {
   }
 
   /**
-   * Scanline-fills a crisp pixel-art polygon (for organic silhouettes, wings, capes, horns).
+   * Draws a hue-shifted shaded cylinder/limb/horn/barrel from (x0,y0) to (x1,y1)
+   * with tapered radius (r0 -> r1), perpendicular metallic light wrap, and optional ink outline.
+   */
+  drawRampLimb(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    r0: number,
+    r1: number,
+    ramp: ColorRamp,
+    dither = 0.14,
+  ): void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len2 = Math.max(0.001, dx * dx + dy * dy);
+    const maxR = Math.max(r0, r1) + 2;
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1) - maxR));
+    const maxX = Math.min(this.width - 1, Math.ceil(Math.max(x0, x1) + maxR));
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1) - maxR));
+    const maxY = Math.min(this.height - 1, Math.ceil(Math.max(y0, y1) + maxR));
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const px = x + 0.5;
+        const py = y + 0.5;
+        const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / len2));
+        const cx = x0 + dx * t;
+        const cy = y0 + dy * t;
+        const r = r0 + (r1 - r0) * t;
+        const ox = px - cx;
+        const oy = py - cy;
+        const dist = Math.hypot(ox, oy);
+        if (dist <= r) {
+          const nx = r > 0.01 ? ox / r : 0;
+          const ny = r > 0.01 ? oy / r : 0;
+          const nz = Math.sqrt(Math.max(0, 1 - (dist * dist) / Math.max(0.01, r * r)));
+          const light = nx * -0.38 + ny * -0.58 + nz * 0.68;
+          this.setPx(x, y, sampleRamp(ramp, light * 0.58 + 0.36, x, y, dither));
+        }
+      }
+    }
+  }
+
+  /**
+   * Scanline-fills a crisp pixel-art polygon.
    */
   fillPolygon(points: readonly (readonly [number, number])[], c: RGBA, blend = false): void {
     if (points.length < 3) return;
@@ -224,12 +456,13 @@ export class PixelSurface {
   }
 
   /**
-   * Cel-shaded pixel-art polygon with automatic top-left highlight & bottom-right shadow bevels.
+   * Hue-shifted 6-tone sculpted polygon with Bayer dithering, crisp rim catchlights & shadow lip!
    */
-  drawShadedPolygon(
+  drawRampPolygon(
     points: readonly (readonly [number, number])[],
-    base: RGBA,
-    seed = 17
+    ramp: ColorRamp,
+    ditherAmt = 0.14,
+    lightBias = 0.0,
   ): void {
     if (points.length < 3) return;
     let minX = Infinity;
@@ -248,10 +481,6 @@ export class PixelSurface {
     const yEnd = Math.min(this.height - 1, Math.ceil(maxY));
     const spanX = Math.max(1, maxX - minX);
     const spanY = Math.max(1, maxY - minY);
-
-    const hi = shadeColor(base, 1.32);
-    const lo = shadeColor(base, 0.72);
-    const deep = shadeColor(base, 0.5);
 
     const xs: number[] = [];
     for (let y = yStart; y <= yEnd; y++) {
@@ -273,17 +502,167 @@ export class PixelSurface {
         for (let x = lx0; x <= lx1; x++) {
           const nx = (x - minX) / spanX;
           const ny = (y - minY) / spanY;
-          const dither = (pixelHash(x, y, seed) - 0.5) * 0.14;
-          const shade = (1 - ny) * 0.65 + (1 - nx) * 0.35 + dither;
-          let col = base;
-          if (y === yStart || x === lx0) col = hi;
-          else if (y === yEnd || x === lx1) col = deep;
-          else if (shade > 0.72) col = hi;
-          else if (shade < 0.24) col = deep;
-          else if (shade < 0.44) col = lo;
+          // Curved dome-like light feel across horizontal center + top-left key light
+          const dome = 1 - Math.abs(nx - 0.42) * 0.55;
+          const shade = (1 - ny) * 0.62 + dome * 0.34 + lightBias;
+          let col: RGBA;
+          if (y === yStart) col = ramp[5];
+          else if (x === lx0 && ny < 0.7) col = ramp[4];
+          else if (y === yEnd || (x === lx1 && ny > 0.35)) col = ramp[1];
+          else col = sampleRamp(ramp, shade, x, y, ditherAmt);
           this.setPx(x, y, col);
         }
       }
+    }
+  }
+
+  /**
+   * Backwards-compatible cel-shaded polygon using hue-shifted highlights/shadows.
+   */
+  drawShadedPolygon(
+    points: readonly (readonly [number, number])[],
+    base: RGBA,
+    seed = 17,
+  ): void {
+    const hi: RGBA = [
+      Math.min(255, Math.round(base[0] * 1.28 + 12)),
+      Math.min(255, Math.round(base[1] * 1.3 + 10)),
+      Math.min(255, Math.round(base[2] * 1.22 + 4)),
+      base[3],
+    ];
+    const spec = mixColor(hi, [255, 250, 230, base[3]], 0.45);
+    const lo: RGBA = [
+      Math.max(0, Math.round(base[0] * 0.66)),
+      Math.max(0, Math.round(base[1] * 0.68)),
+      Math.max(0, Math.round(base[2] * 0.78 + 8)),
+      base[3],
+    ];
+    const deep: RGBA = [
+      Math.max(0, Math.round(base[0] * 0.4)),
+      Math.max(0, Math.round(base[1] * 0.42)),
+      Math.max(0, Math.round(base[2] * 0.56 + 10)),
+      base[3],
+    ];
+    const ramp: ColorRamp = [INK_OUTLINE, deep, lo, base, hi, spec];
+    this.drawRampPolygon(points, ramp, 0.14 + (seed % 3) * 0.01);
+  }
+
+  /**
+   * Sculpted hue-shifted ellipse/dome using full 6-stop ColorRamp + Bayer dithering!
+   */
+  drawRampEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    ramp: ColorRamp,
+    specular = true,
+    ditherAmt = 0.14,
+  ): void {
+    if (rx <= 0 || ry <= 0) return;
+    const minX = Math.max(0, Math.floor(cx - rx - 1));
+    const maxX = Math.min(this.width - 1, Math.ceil(cx + rx + 1));
+    const minY = Math.max(0, Math.floor(cy - ry - 1));
+    const maxY = Math.min(this.height - 1, Math.ceil(cy + ry + 1));
+    for (let y = minY; y <= maxY; y++) {
+      const ny = (y + 0.5 - cy) / ry;
+      for (let x = minX; x <= maxX; x++) {
+        const nx = (x + 0.5 - cx) / rx;
+        const d2 = nx * nx + ny * ny;
+        if (d2 > 1.0) continue;
+        const nz = Math.sqrt(Math.max(0, 1.0 - d2));
+        const light = nx * -0.4 + ny * -0.56 + nz * 0.66;
+        const t = Math.max(0, Math.min(specular ? 1.0 : 0.84, light * 0.62 + 0.36));
+        this.setPx(x, y, sampleRamp(ramp, t, x, y, ditherAmt));
+      }
+    }
+  }
+
+  /**
+   * Draws an anatomical sub-part onto a temporary layer, applies a crisp 1px dark-ink
+   * internal contour around that part, and composites it onto this surface!
+   * THIS IS THE SECRET TO COMIC-BOOK HEAVY-METAL PIXEL ART ARMOR READABILITY.
+   */
+  drawPart(
+    drawFn: (part: PixelSurface) => void,
+    outlineColor: RGBA = INK_OUTLINE,
+    dropShadowDy = 0,
+  ): void {
+    const layer = new PixelSurface(this.width, this.height);
+    drawFn(layer);
+    if (dropShadowDy > 0) {
+      // Cast subtle dark internal contact shadow under the part before outlining
+      const w = this.width;
+      const h = this.height;
+      for (let y = 0; y < h; y++) {
+        const ty = y + dropShadowDy;
+        if (ty < 0 || ty >= h) continue;
+        for (let x = 0; x < w; x++) {
+          const sIdx = (y * w + x) * 4;
+          if (layer.data[sIdx + 3] > 128) {
+            const dIdx = (ty * w + x) * 4;
+            if (this.data[dIdx + 3] > 128) {
+              this.data[dIdx] = Math.round(this.data[dIdx] * 0.52);
+              this.data[dIdx + 1] = Math.round(this.data[dIdx + 1] * 0.48);
+              this.data[dIdx + 2] = Math.round(this.data[dIdx + 2] * 0.62);
+            }
+          }
+        }
+      }
+    }
+    layer.applyOutline(outlineColor);
+    this.blit(layer, 0, 0, true);
+  }
+
+  /**
+   * Draws a fierce heavy-metal pixel-art flame tongue / fire beard cluster!
+   */
+  drawFlameCluster(
+    cx: number,
+    cy: number,
+    radiusX: number,
+    heightY: number,
+    seed: number,
+    ramp: ColorRamp = RAMPS.fire,
+    upward = true,
+  ): void {
+    const dir = upward ? -1 : 1;
+    const tongues = Math.max(3, Math.round(radiusX * 0.9));
+    for (let i = 0; i < tongues; i++) {
+      const frac = tongues > 1 ? i / (tongues - 1) - 0.5 : 0;
+      const tx = cx + frac * radiusX * 1.8;
+      const len = heightY * (0.65 + pixelHash(i, seed, 41) * 0.55) * (1 - Math.abs(frac) * 0.45);
+      const w = Math.max(1.5, radiusX * 0.34);
+      const bend = (pixelHash(seed, i, 73) - 0.5) * 3.5;
+      // Outer crimson/orange flame tongue
+      this.fillPolygon(
+        [
+          [tx - w, cy],
+          [tx + w, cy],
+          [tx + bend, cy + dir * len],
+        ],
+        ramp[2],
+      );
+      // Mid orange-gold tongue
+      this.fillPolygon(
+        [
+          [tx - w * 0.72, cy],
+          [tx + w * 0.72, cy],
+          [tx + bend * 0.7, cy + dir * len * 0.74],
+        ],
+        ramp[3],
+      );
+      // Hot yellow core
+      this.fillPolygon(
+        [
+          [tx - w * 0.42, cy],
+          [tx + w * 0.42, cy],
+          [tx + bend * 0.4, cy + dir * len * 0.48],
+        ],
+        ramp[4],
+      );
+      // Blazing white base glint
+      this.setPx(Math.round(tx), Math.round(cy + dir * 1), ramp[5]);
     }
   }
 
@@ -292,10 +671,10 @@ export class PixelSurface {
    */
   drawGlowOrb(cx: number, cy: number, radius: number, core: RGBA, mid: RGBA, halo?: RGBA): void {
     if (halo) {
-      this.fillEllipse(cx, cy, radius + 1.5, radius + 1.5, halo, true);
+      this.fillEllipse(cx, cy, radius + 1.8, radius + 1.8, halo, true);
     }
     this.fillEllipse(cx, cy, radius, radius, mid, mid[3] < 255);
-    this.fillEllipse(cx, cy, Math.max(1, radius * 0.5), Math.max(1, radius * 0.5), core, false);
+    this.fillEllipse(cx, cy, Math.max(1, radius * 0.52), Math.max(1, radius * 0.52), core, false);
   }
 
   fillEllipse(cx: number, cy: number, rx: number, ry: number, c: RGBA, blend = false): void {
@@ -318,37 +697,31 @@ export class PixelSurface {
   }
 
   /**
-   * 3-tone cel-shaded pixel sphere/dome with top-left light source and specular pixel glint.
+   * 5-tone hue-shifted pixel sphere/dome with top-left light source and specular pixel glint.
    */
   drawShadedEllipse(cx: number, cy: number, rx: number, ry: number, base: RGBA, specular = true): void {
     if (rx <= 0 || ry <= 0) return;
-    const hi = shadeColor(base, 1.35);
-    const mid = base;
-    const lo = shadeColor(base, 0.65);
-    const deep = shadeColor(base, 0.45);
-    const spec = mixColor(hi, [255, 255, 255, base[3]], 0.55);
-
-    const minX = Math.max(0, Math.floor(cx - rx - 1));
-    const maxX = Math.min(this.width - 1, Math.ceil(cx + rx + 1));
-    const minY = Math.max(0, Math.floor(cy - ry - 1));
-    const maxY = Math.min(this.height - 1, Math.ceil(cy + ry + 1));
-    for (let y = minY; y <= maxY; y++) {
-      const ny = (y + 0.5 - cy) / ry;
-      for (let x = minX; x <= maxX; x++) {
-        const nx = (x + 0.5 - cx) / rx;
-        const d2 = nx * nx + ny * ny;
-        if (d2 > 1.0) continue;
-        const nz = Math.sqrt(Math.max(0, 1.0 - d2));
-        const light = nx * -0.45 + ny * -0.58 + nz * 0.68;
-        let col = mid;
-        if (specular && light > 0.86) col = spec;
-        else if (light > 0.55) col = hi;
-        else if (light > 0.14) col = mid;
-        else if (light > -0.25) col = lo;
-        else col = deep;
-        this.setPx(x, y, col);
-      }
-    }
+    const hi: RGBA = [
+      Math.min(255, Math.round(base[0] * 1.3 + 12)),
+      Math.min(255, Math.round(base[1] * 1.32 + 10)),
+      Math.min(255, Math.round(base[2] * 1.24 + 4)),
+      base[3],
+    ];
+    const lo: RGBA = [
+      Math.max(0, Math.round(base[0] * 0.64)),
+      Math.max(0, Math.round(base[1] * 0.66)),
+      Math.max(0, Math.round(base[2] * 0.78 + 8)),
+      base[3],
+    ];
+    const deep: RGBA = [
+      Math.max(0, Math.round(base[0] * 0.42)),
+      Math.max(0, Math.round(base[1] * 0.44)),
+      Math.max(0, Math.round(base[2] * 0.58 + 10)),
+      base[3],
+    ];
+    const spec = mixColor(hi, [255, 252, 235, base[3]], 0.55);
+    const ramp: ColorRamp = [INK_OUTLINE, deep, lo, base, hi, spec];
+    this.drawRampEllipse(cx, cy, rx, ry, ramp, specular, 0.14);
   }
 
   /**
@@ -388,7 +761,7 @@ export class PixelSurface {
     oy: number,
     rows: readonly string[],
     palette: Record<string, RGBA>,
-    mirrorHorizontal = false
+    mirrorHorizontal = false,
   ): void {
     for (let r = 0; r < rows.length; r++) {
       const row = rows[r];
@@ -413,7 +786,7 @@ export class PixelSurface {
     oy: number,
     leftHalfRows: readonly string[],
     palette: Record<string, RGBA>,
-    evenWidth = true
+    evenWidth = true,
   ): void {
     for (let r = 0; r < leftHalfRows.length; r++) {
       const row = leftHalfRows[r];
@@ -458,7 +831,7 @@ export class PixelSurface {
   }
 
   /**
-   * Adds subtle outer neon aura around bright emissive pixels matching predicate.
+   * Adds subtle outer neon aura around bright emissive pixels.
    */
   addEmissiveHalo(haloColor: RGBA, radius = 1): void {
     const src = new Uint8ClampedArray(this.data);
@@ -562,7 +935,7 @@ export class AtlasPacker {
   private cursorY = 2;
   private shelfH = 0;
 
-  constructor(pageSize = 1024) {
+  constructor(pageSize = 2048) {
     this.pageSize = pageSize;
     this.pages.push(new PixelSurface(pageSize, pageSize));
   }
